@@ -1,0 +1,49 @@
+type: component
+name: node-ts-lib
+version: 0.1.0
+kind: lib
+
+prompts:
+  - project_name:
+      type: string
+      required: true
+      description: Package name (e.g. my-lib)
+      pattern: '^[a-z][a-z0-9-]*$'
+  - description:
+      type: string
+      default: ''
+      description: Short description
+  - author:
+      type: string
+      default: ''
+      description: Author
+  - license:
+      type: enum
+      choices: [MIT, Apache-2.0]
+      default: MIT
+      description: License
+
+sections:
+  - title: Basics
+    prompts: [project_name, description, author]
+  - title: Licence
+    prompts: [license]
+
+hooks:
+  post_render:
+    - rename: { from: gitignore, to: .gitignore }
+
+setup:
+  message: |
+    Your library is scaffolded. A few things to wire up:
+  tasks:
+    - id: install-deps
+      title: Install dependencies
+      detail: |
+        cd into the project and run:
+          npm install
+    - id: first-build
+      title: Run the first build
+      detail: |
+        npm run build
+        Verifies the toolchain and emits dist/ with .d.ts type declarations.

@@ -1,0 +1,42 @@
+type: recipe
+name: node-ts-monorepo
+version: 0.1.0
+
+# Recipe-level prompts run once at the top, before any child's prompts.
+prompts:
+  - workspace_name:
+      type: string
+      required: true
+      description: Workspace name (root package.json `name`)
+      pattern: '^[a-z][a-z0-9-]*$'
+
+# Each child renders into <output>/<key>/. Children own their own per-package
+# config — recipe owns root orchestration only.
+composes:
+  cli: file:../node-ts-cli
+  lib: file:../node-ts-lib
+
+# Root gitignore renamed at render-time. Children's own gitignore renames are
+# scoped to their subtrees and don't conflict.
+hooks:
+  post_render:
+    - rename: { from: gitignore, to: .gitignore }
+
+setup:
+  message: |
+    Workspace scaffolded. CLI + library are in their own subdirs and the root
+    package.json is configured as an npm workspace.
+  tasks:
+    - id: install-deps
+      title: Install all workspace dependencies
+      detail: |
+        At the workspace root:
+          npm install
+        npm hoists shared deps and links the lib into the cli automatically.
+    - id: wire-cli-to-lib
+      title: (Optional) Wire the CLI to depend on the library
+      detail: |
+        In cli/package.json, add the library as a workspace dependency:
+          "{{ workspace_name }}-lib": "workspace:*"
+        (or use whatever name the library got — see lib/package.json).
+        Then `import { greet } from '<lib>'` from inside the CLI.
