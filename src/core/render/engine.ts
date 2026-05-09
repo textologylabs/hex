@@ -29,7 +29,7 @@ function looksBinary(buf: Buffer): boolean {
   return false;
 }
 
-async function ensureWriteableTarget(outputPath: string, force: boolean): Promise<void> {
+export async function ensureWriteableTarget(outputPath: string, force: boolean): Promise<void> {
   try {
     const s = await stat(outputPath);
     if (!s.isDirectory()) {
