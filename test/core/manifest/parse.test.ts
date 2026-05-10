@@ -700,6 +700,76 @@ describe('parseManifestObject — provides / consumes / requires (M6.1)', () => 
   });
 });
 
+describe('parseManifestObject — composes slot form (M6.3)', () => {
+  const baseRecipe = {
+    type: 'recipe' as const,
+    name: 'fullstack-app',
+    version: '0.1.0',
+  };
+
+  it('parses an object slot entry into a slot ChildRef', () => {
+    const m = parseManifestObject({
+      ...baseRecipe,
+      composes: { api: { kind: 'api', version: '^1.0.0' } },
+    });
+    expect(m.composes?.api).toEqual({
+      kind: 'slot',
+      componentKind: 'api',
+      versionSpec: '^1.0.0',
+    });
+  });
+
+  it('accepts the slot form alongside other wire forms in the same composes', () => {
+    const m = parseManifestObject({
+      ...baseRecipe,
+      composes: {
+        api: { kind: 'api', version: '^1.0.0' },
+        ui: 'vite-spa@^1.0.0',
+        local: 'file:./packages/db',
+      },
+    });
+    expect(m.composes?.api?.kind).toBe('slot');
+    expect(m.composes?.ui?.kind).toBe('name');
+    expect(m.composes?.local?.kind).toBe('file');
+  });
+
+  it('rejects a slot entry with a non-kebab kind', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseRecipe,
+        composes: { api: { kind: 'API', version: '^1.0.0' } },
+      }),
+    ).toThrow(/kebab-case/);
+  });
+
+  it('rejects a slot entry with a malformed version', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseRecipe,
+        composes: { api: { kind: 'api', version: '1.x' } },
+      }),
+    ).toThrow(/recognized semver spec/);
+  });
+
+  it('rejects a slot entry with extra fields', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseRecipe,
+        composes: { api: { kind: 'api', version: '^1.0.0', name: 'whoops' } },
+      }),
+    ).toThrow(ManifestError);
+  });
+
+  it('rejects a slot entry missing the version field', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseRecipe,
+        composes: { api: { kind: 'api' } },
+      }),
+    ).toThrow(ManifestError);
+  });
+});
+
 describe('parseManifestObject — composes (M5.2 wire forms)', () => {
   const baseRecipe = {
     type: 'recipe' as const,

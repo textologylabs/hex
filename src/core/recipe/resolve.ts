@@ -4,7 +4,7 @@ import { type TemplateEntry, discoverTemplates } from '../discovery/index.js';
 import type { ChildRef } from '../manifest/types.js';
 import { type ComponentBundle, loadFromPath } from '../sources/file-source.js';
 import { resolveGitSource } from '../sources/git-source.js';
-import { validateContracts } from './contracts.js';
+import { validateContracts, versionSatisfies } from './contracts.js';
 
 export class RecipeResolutionError extends Error {
   constructor(
@@ -97,7 +97,10 @@ async function resolveRecipeRec(
   // Lazy discovery — at most once across the whole recursive walk. Re-evaluate
   // at each level so a deep bare-name ref still triggers discovery if no
   // shallower level needed it.
-  if (ctx.discovered === null && Object.values(composes).some((c) => c.kind === 'name')) {
+  if (
+    ctx.discovered === null &&
+    Object.values(composes).some((c) => c.kind === 'name' || c.kind === 'slot')
+  ) {
     const result = await discoverTemplates(ctx.opts.config, { cacheDir: ctx.opts.cacheDir });
     ctx.discovered = result.templates;
     if (ctx.opts.warnings) ctx.opts.warnings.push(...result.warnings);
@@ -156,6 +159,36 @@ async function loadChild(
     );
     return loadFromPath(result.localPath);
   }
+  if (ref.kind === 'slot') {
+    if (!discovered) {
+      throw new Error('discovered templates not loaded — internal resolver invariant violated');
+    }
+    const matches = discovered.filter(
+      (t) =>
+        t.type === 'component' &&
+        t.kind === ref.componentKind &&
+        versionSatisfies(t.version, ref.versionSpec),
+    );
+    if (matches.length === 0) {
+      throw new Error(
+        `no component with kind "${ref.componentKind}" matching version "${ref.versionSpec}" found in configured source roots`,
+      );
+    }
+    if (matches.length > 1 && opts.warnings) {
+      const names = matches.map((m) => `${m.name}@${m.version}`).join(', ');
+      const picked = matches[0];
+      opts.warnings.push(
+        `ambiguous slot for kind "${ref.componentKind}" (version "${ref.versionSpec}"): ${matches.length} candidates [${names}] — picked ${picked?.name}@${picked?.version}`,
+      );
+    }
+    const picked = matches[0];
+    if (!picked) {
+      throw new Error(
+        'internal resolver invariant violated: matches non-empty but first is undefined',
+      );
+    }
+    return loadFromPath(picked.rootPath);
+  }
   // ref.kind === 'name'
   if (!discovered) {
     throw new Error('discovered templates not loaded — internal resolver invariant violated');
@@ -172,5 +205,6 @@ async function loadChild(
 function describeRef(ref: ChildRef): string {
   if (ref.kind === 'file') return `file:${ref.path}`;
   if (ref.kind === 'git') return ref.ref ? `git+${ref.url}@${ref.ref}` : `git+${ref.url}`;
+  if (ref.kind === 'slot') return `{ kind: ${ref.componentKind}, version: ${ref.versionSpec} }`;
   return `${ref.name}@${ref.versionSpec}`;
 }

@@ -104,7 +104,14 @@ export type GitChildRef = {
   ref?: string;
 };
 
-export type ChildRef = NameChildRef | FileChildRef | GitChildRef;
+export type SlotChildRef = {
+  kind: 'slot';
+  /** The component kind to match against discovered templates. */
+  componentKind: string;
+  versionSpec: string;
+};
+
+export type ChildRef = NameChildRef | FileChildRef | GitChildRef | SlotChildRef;
 
 export type Composes = Record<string, ChildRef>;
 

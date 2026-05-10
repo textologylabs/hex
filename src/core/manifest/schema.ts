@@ -138,7 +138,27 @@ const VERSION_SPEC_RE =
 //
 // The scoped-name case (`@hexology/foo@^0.1.0`) parses by splitting on the
 // LAST `@` after stripping the optional prefix.
-export const composesEntrySchema = z
+// Slot form (M6.3): `{ kind: <component-kind>, version: <spec> }` — picks a
+// candidate from discovery matching the kind. We use a single dispatching
+// transform (rather than `z.union(stringForm, slotForm)`) because zod's union
+// swallows the string transform's custom `ctx.addIssue` messages and reports
+// only a generic "Invalid input" at the parent path.
+const slotComposesEntryShape = z
+  .object({
+    kind: z
+      .string()
+      .min(1)
+      .regex(
+        KEBAB_KEY_RE,
+        'composes slot kind must be kebab-case ([a-z0-9-], no leading/trailing dash)',
+      ),
+    version: z
+      .string()
+      .regex(VERSION_SPEC_RE, 'composes slot version must be a recognized semver spec'),
+  })
+  .strict();
+
+const stringComposesEntrySchema = z
   .string()
   .min(1)
   .transform((spec, ctx) => {
@@ -203,6 +223,46 @@ export const composesEntrySchema = z
     }
     return { kind: 'name' as const, name, versionSpec };
   });
+
+export const composesEntrySchema = z.unknown().transform((val, ctx) => {
+  if (typeof val === 'string') {
+    const parsed = stringComposesEntrySchema.safeParse(val);
+    if (!parsed.success) {
+      // Forward each sub-schema issue to the parent context. Cast to the
+      // input shape — zod's $ZodIssue union has variants (e.g.
+      // unrecognized_keys) that the public addIssue() input type doesn't
+      // include directly, but the runtime accepts them.
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue(issue as Parameters<typeof ctx.addIssue>[0]);
+      }
+      return z.NEVER;
+    }
+    return parsed.data;
+  }
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const parsed = slotComposesEntryShape.safeParse(val);
+    if (!parsed.success) {
+      // Forward each sub-schema issue to the parent context. Cast to the
+      // input shape — zod's $ZodIssue union has variants (e.g.
+      // unrecognized_keys) that the public addIssue() input type doesn't
+      // include directly, but the runtime accepts them.
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue(issue as Parameters<typeof ctx.addIssue>[0]);
+      }
+      return z.NEVER;
+    }
+    return {
+      kind: 'slot' as const,
+      componentKind: parsed.data.kind,
+      versionSpec: parsed.data.version,
+    };
+  }
+  ctx.addIssue({
+    code: 'custom',
+    message: 'composes entry must be a string or { kind, version } object',
+  });
+  return z.NEVER;
+});
 
 export const composesSchema = z.record(z.string(), composesEntrySchema);
 

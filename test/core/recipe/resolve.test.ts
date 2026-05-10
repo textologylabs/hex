@@ -423,3 +423,149 @@ describe('resolveRecipe — recursive (recipe composing recipes)', () => {
     ).toBe('leaf');
   });
 });
+
+describe('resolveRecipe — slot refs (M6.3)', () => {
+  it('picks a component by kind from a configured source root', async () => {
+    const sourceRoot = join(work, 'sources');
+    await mkdir(sourceRoot, { recursive: true });
+    const recipeRoot = join(work, 'recipe');
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      composes: { api: { kind: 'api', version: '^1.0.0' } },
+    });
+    await writeManifest(join(sourceRoot, 'express'), {
+      type: 'component',
+      name: 'api-express',
+      version: '1.4.0',
+      kind: 'api',
+    });
+
+    const config: HexConfig = { sources: [{ kind: 'path', path: sourceRoot }] };
+    const recipeBundle = await loadFromPath(recipeRoot);
+    const result = await resolveRecipe(recipeBundle, { config });
+
+    expect(result.children.get('api')?.bundle.manifest.name).toBe('api-express');
+  });
+
+  it('warns when multiple candidates match the slot, picking the first', async () => {
+    const sourceRoot = join(work, 'sources');
+    await mkdir(sourceRoot, { recursive: true });
+    const recipeRoot = join(work, 'recipe');
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      composes: { api: { kind: 'api', version: '^1.0.0' } },
+    });
+    await writeManifest(join(sourceRoot, 'express'), {
+      type: 'component',
+      name: 'api-express',
+      version: '1.4.0',
+      kind: 'api',
+    });
+    await writeManifest(join(sourceRoot, 'fastify'), {
+      type: 'component',
+      name: 'api-fastify',
+      version: '1.0.0',
+      kind: 'api',
+    });
+
+    const config: HexConfig = { sources: [{ kind: 'path', path: sourceRoot }] };
+    const recipeBundle = await loadFromPath(recipeRoot);
+    const warnings: string[] = [];
+    const result = await resolveRecipe(recipeBundle, { config, warnings });
+
+    // Either candidate is acceptable as "first"; the warning is what we assert on.
+    expect(['api-express', 'api-fastify']).toContain(
+      result.children.get('api')?.bundle.manifest.name,
+    );
+    expect(warnings.some((w) => /ambiguous slot for kind "api"/.test(w))).toBe(true);
+    expect(
+      warnings.some((w) => /api-express@1\.4\.0/.test(w) && /api-fastify@1\.0\.0/.test(w)),
+    ).toBe(true);
+  });
+
+  it('filters candidates by version spec', async () => {
+    const sourceRoot = join(work, 'sources');
+    await mkdir(sourceRoot, { recursive: true });
+    const recipeRoot = join(work, 'recipe');
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      composes: { api: { kind: 'api', version: '^2.0.0' } },
+    });
+    await writeManifest(join(sourceRoot, 'old'), {
+      type: 'component',
+      name: 'api-old',
+      version: '1.0.0',
+      kind: 'api',
+    });
+    await writeManifest(join(sourceRoot, 'new'), {
+      type: 'component',
+      name: 'api-new',
+      version: '2.3.0',
+      kind: 'api',
+    });
+
+    const config: HexConfig = { sources: [{ kind: 'path', path: sourceRoot }] };
+    const recipeBundle = await loadFromPath(recipeRoot);
+    const result = await resolveRecipe(recipeBundle, { config });
+
+    expect(result.children.get('api')?.bundle.manifest.name).toBe('api-new');
+  });
+
+  it('errors when no component matches the slot kind', async () => {
+    const sourceRoot = join(work, 'sources');
+    await mkdir(sourceRoot, { recursive: true });
+    const recipeRoot = join(work, 'recipe');
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      composes: { api: { kind: 'api', version: '^1.0.0' } },
+    });
+    await writeManifest(join(sourceRoot, 'wrong-kind'), {
+      type: 'component',
+      name: 'cache-redis',
+      version: '1.0.0',
+      kind: 'cache',
+    });
+
+    const config: HexConfig = { sources: [{ kind: 'path', path: sourceRoot }] };
+    const recipeBundle = await loadFromPath(recipeRoot);
+
+    await expect(resolveRecipe(recipeBundle, { config })).rejects.toThrow(
+      /no component with kind "api"/,
+    );
+  });
+
+  it('explicit name form does not fall back to kind matching', async () => {
+    // The recipe asks for `api-fastify` by name; only `api-express` (same kind)
+    // is in the source root. Should error, not silently substitute by kind.
+    const sourceRoot = join(work, 'sources');
+    await mkdir(sourceRoot, { recursive: true });
+    const recipeRoot = join(work, 'recipe');
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      composes: { api: 'api-fastify@^1.0.0' },
+    });
+    await writeManifest(join(sourceRoot, 'express'), {
+      type: 'component',
+      name: 'api-express',
+      version: '1.4.0',
+      kind: 'api',
+    });
+
+    const config: HexConfig = { sources: [{ kind: 'path', path: sourceRoot }] };
+    const recipeBundle = await loadFromPath(recipeRoot);
+
+    await expect(resolveRecipe(recipeBundle, { config })).rejects.toThrow(
+      /no template named "api-fastify"/,
+    );
+  });
+});
