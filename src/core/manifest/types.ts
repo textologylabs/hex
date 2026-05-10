@@ -108,6 +108,10 @@ export type ChildRef = NameChildRef | FileChildRef | GitChildRef;
 
 export type Composes = Record<string, ChildRef>;
 
+export type RequireByKind = { kind: string };
+export type RequireByNameVersion = { name: string; version: string };
+export type Requirement = RequireByKind | RequireByNameVersion;
+
 export type Manifest = {
   type: 'component' | 'recipe';
   name: string;
@@ -119,4 +123,7 @@ export type Manifest = {
   include?: IncludeRule[];
   setup?: Setup;
   composes?: Composes;
+  provides?: string[];
+  consumes?: string[];
+  requires?: Requirement[];
 };

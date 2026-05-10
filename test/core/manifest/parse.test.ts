@@ -508,6 +508,198 @@ describe('parseManifestObject — composes (M5.1)', () => {
   });
 });
 
+describe('parseManifestObject — provides / consumes / requires (M6.1)', () => {
+  const baseComponent = {
+    type: 'component' as const,
+    name: 'api-express',
+    version: '1.2.0',
+    kind: 'api',
+  };
+
+  it('accepts a component with provides', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      provides: ['HTTP_PORT', 'api_routes_dir'],
+    });
+    expect(m.provides).toEqual(['HTTP_PORT', 'api_routes_dir']);
+  });
+
+  it('accepts a component with consumes', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      consumes: ['DB_URL', 'session_store'],
+    });
+    expect(m.consumes).toEqual(['DB_URL', 'session_store']);
+  });
+
+  it('accepts a kind-based requires entry', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      requires: [{ kind: 'monitoring' }],
+    });
+    expect(m.requires).toEqual([{ kind: 'monitoring' }]);
+  });
+
+  it('accepts a name+version requires entry', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      requires: [{ name: 'auth-session', version: '^1.0.0' }],
+    });
+    expect(m.requires).toEqual([{ name: 'auth-session', version: '^1.0.0' }]);
+  });
+
+  it('accepts a mixed-style requires array (each entry well-formed)', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      requires: [
+        { kind: 'db' },
+        { name: 'auth-session', version: '~1.2.0' },
+        { kind: 'monitoring' },
+      ],
+    });
+    expect(m.requires).toHaveLength(3);
+  });
+
+  it('accepts all three fields together on a component', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      provides: ['HTTP_PORT'],
+      consumes: ['DB_URL'],
+      requires: [{ kind: 'db' }],
+    });
+    expect(m.provides).toEqual(['HTTP_PORT']);
+    expect(m.consumes).toEqual(['DB_URL']);
+    expect(m.requires).toEqual([{ kind: 'db' }]);
+  });
+
+  it('treats absent fields as undefined', () => {
+    const m = parseManifestObject(baseComponent);
+    expect(m.provides).toBeUndefined();
+    expect(m.consumes).toBeUndefined();
+    expect(m.requires).toBeUndefined();
+  });
+
+  it('rejects an empty string in provides', () => {
+    expect(() => parseManifestObject({ ...baseComponent, provides: ['HTTP_PORT', ''] })).toThrow(
+      ManifestError,
+    );
+  });
+
+  it('rejects an empty string in consumes', () => {
+    expect(() => parseManifestObject({ ...baseComponent, consumes: [''] })).toThrow(ManifestError);
+  });
+
+  it('rejects a requires entry that mixes kind with name+version', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ kind: 'db', name: 'pg', version: '^14.0.0' }],
+      }),
+    ).toThrow(ManifestError);
+  });
+
+  it('rejects a requires entry with only `name` (missing version)', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ name: 'auth-session' }],
+      }),
+    ).toThrow(ManifestError);
+  });
+
+  it('rejects a requires entry with only `version` (missing name)', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ version: '^1.0.0' }],
+      }),
+    ).toThrow(ManifestError);
+  });
+
+  it('rejects a requires entry with an empty kind', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ kind: '' }],
+      }),
+    ).toThrow(ManifestError);
+  });
+
+  it('rejects a requires entry with a non-kebab kind', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ kind: 'Monitoring' }],
+      }),
+    ).toThrow(/kebab-case/);
+  });
+
+  it('rejects a requires entry with a malformed version', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ name: 'auth-session', version: '1.x' }],
+      }),
+    ).toThrow(/recognized semver spec/);
+  });
+
+  it('rejects a requires entry with an incomplete semver triplet', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseComponent,
+        requires: [{ name: 'auth-session', version: '1.2' }],
+      }),
+    ).toThrow(/recognized semver spec/);
+  });
+
+  it('accepts caret, tilde, gte, and bare semver as version specs', () => {
+    const m = parseManifestObject({
+      ...baseComponent,
+      requires: [
+        { name: 'a', version: '^1.0.0' },
+        { name: 'b', version: '~1.0.0' },
+        { name: 'c', version: '>=1.0.0' },
+        { name: 'd', version: '1.0.0' },
+        { name: 'e', version: '*' },
+      ],
+    });
+    expect(m.requires).toHaveLength(5);
+  });
+
+  it('rejects provides on a recipe', () => {
+    expect(() =>
+      parseManifestObject({
+        type: 'recipe',
+        name: 'r',
+        version: '0.1.0',
+        provides: ['HTTP_PORT'],
+      }),
+    ).toThrow(/only allowed on components/);
+  });
+
+  it('rejects consumes on a recipe', () => {
+    expect(() =>
+      parseManifestObject({
+        type: 'recipe',
+        name: 'r',
+        version: '0.1.0',
+        consumes: ['DB_URL'],
+      }),
+    ).toThrow(/only allowed on components/);
+  });
+
+  it('rejects requires on a recipe', () => {
+    expect(() =>
+      parseManifestObject({
+        type: 'recipe',
+        name: 'r',
+        version: '0.1.0',
+        requires: [{ kind: 'db' }],
+      }),
+    ).toThrow(/only allowed on components/);
+  });
+});
+
 describe('parseManifestObject — composes (M5.2 wire forms)', () => {
   const baseRecipe = {
     type: 'recipe' as const,

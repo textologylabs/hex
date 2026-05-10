@@ -206,6 +206,39 @@ export const composesEntrySchema = z
 
 export const composesSchema = z.record(z.string(), composesEntrySchema);
 
+// Component contracts (M6.1):
+//   provides — non-empty strings (env vars, generated symbols, file-layout promises)
+//   consumes — non-empty strings the component needs bound from siblings
+//   requires — peer-presence assertions, either by kind or by name+version
+export const providesSchema = z.array(z.string().min(1));
+export const consumesSchema = z.array(z.string().min(1));
+
+// `.strict()` on each variant ensures a mixed object (e.g. `{kind, name, version}`)
+// fails BOTH variants — without it, zod would silently strip the extra keys and
+// accept the object as the matching shape.
+const requireByKindSchema = z
+  .object({
+    kind: z
+      .string()
+      .min(1)
+      .regex(
+        KEBAB_KEY_RE,
+        'requires kind must be kebab-case ([a-z0-9-], no leading/trailing dash)',
+      ),
+  })
+  .strict();
+
+const requireByNameVersionSchema = z
+  .object({
+    name: z.string().min(1),
+    version: z.string().regex(VERSION_SPEC_RE, 'requires version must be a recognized semver spec'),
+  })
+  .strict();
+
+export const requirementSchema = z.union([requireByKindSchema, requireByNameVersionSchema]);
+
+export const requiresSchema = z.array(requirementSchema);
+
 // Manifest schema with prompts already desugared (each entry { name, def }).
 // `sections:` opts the manifest into total coverage — every prompt must
 // appear in exactly one section, and section entries must reference real
@@ -230,8 +263,21 @@ export const manifestSchema = z
     include: z.array(includeRuleSchema).optional(),
     setup: setupSchema.optional(),
     composes: composesSchema.optional(),
+    provides: providesSchema.optional(),
+    consumes: consumesSchema.optional(),
+    requires: requiresSchema.optional(),
   })
   .superRefine((manifest, ctx) => {
+    for (const field of ['provides', 'consumes', 'requires'] as const) {
+      if (manifest[field] && manifest.type !== 'component') {
+        ctx.addIssue({
+          code: 'custom',
+          path: [field],
+          message: `\`${field}\` is only allowed on components (type: component)`,
+        });
+      }
+    }
+
     if (manifest.composes) {
       if (manifest.type !== 'recipe') {
         ctx.addIssue({
