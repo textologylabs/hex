@@ -87,7 +87,16 @@ export const deleteHookSchema = z.object({
 // separators, no traversal — so a manifest cannot reach outside its own
 // hooks directory just by declaring a hook. Bundle loader (M7.3) reads
 // the file at load time and fails clearly if it's missing.
+//
+// `name` (M7.5) optionally overrides the namespace under which the
+// hook's prompt answers land — `answers.hooks.<name>.*`. Defaults to
+// the filename minus `.js`.
+//
+// `prompts` (M7.5) is the same desugared array shape the top-level
+// `prompts:` block produces — the manifest parser runs `desugarPrompts`
+// over hook-level prompts before zod sees them.
 const HOOK_FILENAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*\.js$/;
+const HOOK_NAME_RE = /^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/;
 export const jsHookSchema = z.object({
   js: z
     .string()
@@ -97,6 +106,22 @@ export const jsHookSchema = z.object({
       'js hook filename must be a plain `.js` filename inside `.hex/hooks/` (no path separators, no `..`)',
     ),
   when: z.string().optional(),
+  name: z
+    .string()
+    .min(1)
+    .regex(
+      HOOK_NAME_RE,
+      'js hook name must be kebab/snake-case ([a-z0-9_-], no leading/trailing dash or underscore)',
+    )
+    .optional(),
+  prompts: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        def: promptDefSchema,
+      }),
+    )
+    .optional(),
 });
 
 const postRenderHookSchema = z.union([renameHookSchema, deleteHookSchema, jsHookSchema]);

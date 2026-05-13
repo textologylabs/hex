@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { type HookResult, runPostRenderHooks } from '../hooks/declarative.js';
 import { type HookLog, type RecipeContext, runJsHooks } from '../hooks/runner.js';
 import type { JsHook } from '../manifest/types.js';
-import type { Answers } from '../prompts/types.js';
+import type { Answers, Prompter } from '../prompts/types.js';
 import type { ComponentBundle } from '../sources/file-source.js';
 import { shouldInclude } from './include-rules.js';
 import { renderText } from './templating.js';
@@ -43,6 +43,11 @@ export type RenderOptions = {
    * Tests inject a capturing sink here.
    */
   hookLog?: HookLog;
+  /**
+   * Prompter forwarded to JS hooks that declare `prompts:` (M7.5).
+   * Required when any such hook is reachable; omitted otherwise.
+   */
+  prompter?: Prompter;
 };
 
 const BINARY_SAMPLE_BYTES = 8192;
@@ -113,6 +118,12 @@ export async function renderBundle(
     await ensureWriteableTarget(absOut, opts.force ?? false);
   }
 
+  // `live` tracks answers across the lifecycle. Hook-defined prompts
+  // (M7.5) augment it with `answers.hooks.<name>.*` entries that need
+  // to be visible to subsequent phases (walk, declarative hooks,
+  // post_render JS hooks).
+  let live: Answers = answers;
+
   // Pre-render JS hooks need the output dir to exist so the project FS
   // facade can write into it. mkdir is idempotent — the recipe-root
   // render path may already have populated it via children, which is
@@ -120,9 +131,10 @@ export async function renderBundle(
   const preRenderJsHooks = (bundle.manifest.hooks?.pre_render ?? []) as JsHook[];
   if (preRenderJsHooks.length > 0) {
     await mkdir(absOut, { recursive: true });
-    await runJsHooks('pre_render', preRenderJsHooks, bundle.jsHookSources, absOut, answers, {
+    live = await runJsHooks('pre_render', preRenderJsHooks, bundle.jsHookSources, absOut, live, {
       recipe: opts.recipe,
       log: opts.hookLog,
+      prompter: opts.prompter,
     });
   }
 
@@ -132,9 +144,9 @@ export async function renderBundle(
   for await (const file of walkTemplate(bundle.rootPath, {
     extraIgnorePatterns: opts.extraIgnorePatterns,
   })) {
-    if (!shouldInclude(file.relativePath, includeRules, answers)) continue;
+    if (!shouldInclude(file.relativePath, includeRules, live)) continue;
 
-    const renderedRel = renderText(file.relativePath, answers).trim();
+    const renderedRel = renderText(file.relativePath, live).trim();
     if (renderedRel.length === 0) continue;
 
     const targetPath = safeJoin(absOut, renderedRel);
@@ -145,7 +157,7 @@ export async function renderBundle(
     if (looksBinary(data)) {
       await writeFile(targetPath, data);
     } else {
-      const rendered = renderText(data.toString('utf8'), answers);
+      const rendered = renderText(data.toString('utf8'), live);
       await writeFile(targetPath, rendered, 'utf8');
     }
 
@@ -153,7 +165,7 @@ export async function renderBundle(
   }
 
   const postRenderHooks = bundle.manifest.hooks?.post_render ?? [];
-  const hookResult = await runPostRenderHooks(absOut, postRenderHooks, answers, written, {
+  const hookResult = await runPostRenderHooks(absOut, postRenderHooks, live, written, {
     force: opts.force ?? false,
   });
 
@@ -161,9 +173,10 @@ export async function renderBundle(
   // final shape of the tree (post-rename, post-delete).
   const postRenderJsHooks = postRenderHooks.filter((h): h is JsHook => 'js' in h);
   if (postRenderJsHooks.length > 0) {
-    await runJsHooks('post_render', postRenderJsHooks, bundle.jsHookSources, absOut, answers, {
+    live = await runJsHooks('post_render', postRenderJsHooks, bundle.jsHookSources, absOut, live, {
       recipe: opts.recipe,
       log: opts.hookLog,
+      prompter: opts.prompter,
     });
   }
 

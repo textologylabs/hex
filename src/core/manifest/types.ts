@@ -67,10 +67,20 @@ export type DeleteHook = {
  * JS hook declaration. `js` is the filename inside `.hex/hooks/` — no
  * subdirectories, no traversal. The bundle loader reads the file at load
  * time and attaches its source under `ComponentBundle.jsHookSources`.
+ *
+ * `name` (M7.5) is the namespace key used for the hook's prompt answers
+ * (`answers.hooks.<name>.*`). Defaults to the filename minus `.js`.
+ *
+ * `prompts` (M7.5) fire at the hook's lifecycle moment, before the
+ * hook's JS body runs. Answers land namespaced — the hook can read the
+ * full answers tree (shared read) but persisted writes are isolated to
+ * its own namespace.
  */
 export type JsHook = {
   js: string;
   when?: string;
+  name?: string;
+  prompts?: Prompt[];
 };
 
 export type PostRenderHook = RenameHook | DeleteHook | JsHook;

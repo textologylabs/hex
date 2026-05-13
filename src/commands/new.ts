@@ -87,10 +87,13 @@ export async function executeNewRender(
   bundle: ComponentBundle,
   outputDir: string,
   ctx: NewContext,
-  opts: { force: boolean },
+  opts: { force: boolean; prompter?: Prompter },
 ): Promise<NewRenderSummary> {
   if (ctx.resolved) {
-    const result = await renderRecipe(ctx.resolved, outputDir, ctx.answers, { force: opts.force });
+    const result = await renderRecipe(ctx.resolved, outputDir, ctx.answers, {
+      force: opts.force,
+      prompter: opts.prompter,
+    });
     const counts = summariseRecipeRender(result);
     return {
       ...counts,
@@ -99,7 +102,10 @@ export async function executeNewRender(
       setupMessage: bundle.manifest.setup?.message,
     };
   }
-  const result = await renderBundle(bundle, outputDir, ctx.answers, { force: opts.force });
+  const result = await renderBundle(bundle, outputDir, ctx.answers, {
+    force: opts.force,
+    prompter: opts.prompter,
+  });
   return {
     written: result.written.length,
     renamed: result.renamed.length,
@@ -165,12 +171,16 @@ export function registerNew(program: Command): void {
         const outputDir = await resolveOutputDir(outputArg);
         const config = await loadConfig();
 
-        const ctx = await collectNewAnswers(bundle, createClackPrompter(), config);
+        const prompter = createClackPrompter();
+        const ctx = await collectNewAnswers(bundle, prompter, config);
         for (const w of ctx.warnings) clack.log.warn(w);
 
         const spinner = clack.spinner();
         spinner.start('rendering');
-        const result = await executeNewRender(bundle, outputDir, ctx, { force: opts.force });
+        const result = await executeNewRender(bundle, outputDir, ctx, {
+          force: opts.force,
+          prompter,
+        });
         const summaryTail =
           result.childCount > 0
             ? ` across ${result.childCount} child${result.childCount === 1 ? '' : 'ren'} + recipe root`

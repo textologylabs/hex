@@ -349,6 +349,63 @@ hooks:
     expect(sink).toEqual([{ level: 'info', msg: 'answers.name=demo recipe=none' }]);
   });
 
+  it('fires a pre_render hook prompt and surfaces the answer to the render walk via answers.hooks.<name>', async () => {
+    const manifest = `type: component
+name: demo
+version: 0.1.0
+hooks:
+  pre_render:
+    - js: configure.js
+      name: configure
+      prompts:
+        - replicas: { type: string, default: "1" }
+`;
+    const root = join(work, 'template');
+    await mkdir(join(root, '.hex', 'hooks'), { recursive: true });
+    await writeFile(join(root, '.hex', 'manifest.yaml'), manifest, 'utf8');
+    await writeFile(
+      join(root, '.hex', 'hooks', 'configure.js'),
+      "log.info('hooked at replicas=' + answers.hooks.configure.replicas);",
+      'utf8',
+    );
+    await writeFile(join(root, 'config.yaml'), 'replicas: {{ hooks.configure.replicas }}', 'utf8');
+    const sink: string[] = [];
+    const prompter = {
+      async text(opts: { message: string }) {
+        return opts.message === 'replicas' ? '4' : '';
+      },
+      async confirm() {
+        return false;
+      },
+      async select() {
+        return '';
+      },
+      async multiselect() {
+        return [];
+      },
+      async password() {
+        return '';
+      },
+    };
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    await renderBundle(
+      bundle,
+      out,
+      {},
+      {
+        prompter,
+        hookLog: {
+          info: (msg) => sink.push(msg),
+          warn: () => {},
+          error: () => {},
+        },
+      },
+    );
+    expect(await readFile(join(out, 'config.yaml'), 'utf8')).toBe('replicas: 4');
+    expect(sink).toEqual(['hooked at replicas=4']);
+  });
+
   it('exposes recipe metadata to JS hooks when RenderOptions.recipe is set', async () => {
     const sink: Array<{ level: string; msg: string }> = [];
     const root = await buildWithJsHook({

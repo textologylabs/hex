@@ -53,6 +53,27 @@ export function parseManifestObject(data: unknown, sourcePath?: string): Manifes
     }
   }
 
+  if (obj.hooks && typeof obj.hooks === 'object' && !Array.isArray(obj.hooks)) {
+    const hooksObj = obj.hooks as Record<string, unknown>;
+    for (const lifecycle of ['pre_render', 'post_render'] as const) {
+      const entries = hooksObj[lifecycle];
+      if (!Array.isArray(entries)) continue;
+      entries.forEach((entry, idx) => {
+        if (!entry || typeof entry !== 'object' || !('js' in entry)) return;
+        const e = entry as Record<string, unknown>;
+        if (e.prompts === undefined) return;
+        try {
+          e.prompts = desugarPrompts(e.prompts);
+        } catch (err) {
+          throw new ManifestError(
+            `hooks.${lifecycle}[${idx}].prompts: ${err instanceof Error ? err.message : String(err)}`,
+            sourcePath,
+          );
+        }
+      });
+    }
+  }
+
   const result = manifestSchema.safeParse(obj);
   if (!result.success) {
     const issues = result.error.issues

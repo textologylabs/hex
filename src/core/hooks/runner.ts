@@ -1,6 +1,7 @@
 import type { JsHook } from '../manifest/types.js';
+import { runPrompts } from '../prompts/engine.js';
 import { evalWhen } from '../prompts/expr.js';
-import type { Answers } from '../prompts/types.js';
+import type { Answers, Prompter } from '../prompts/types.js';
 import { ProjectFs } from './project-fs.js';
 import { createSandbox } from './sandbox.js';
 
@@ -39,7 +40,25 @@ export type RunJsHooksOptions = {
   recipe?: RecipeContext;
   /** Override the default log sink (which goes to console). */
   log?: HookLog;
+  /**
+   * Prompter for hook-defined prompts (M7.5). Required if any hook in
+   * the list declares a `prompts:` block; omitting it makes a hook with
+   * prompts fail clearly with a runtime error rather than silently
+   * skipping the prompts.
+   */
+  prompter?: Prompter;
 };
+
+/**
+ * Resolve a hook's namespace key. Explicit `hook.name` wins; otherwise
+ * the filename minus `.js` is used. The schema constrains explicit
+ * names to a safe shape; derived names inherit the filename validation
+ * from M7.3 (alphanumeric + `_`, `.`, `-`, ending in `.js`).
+ */
+function hookNamespace(hook: JsHook): string {
+  if (hook.name) return hook.name;
+  return hook.js.replace(/\.js$/, '');
+}
 
 const defaultLog: HookLog = {
   info(msg) {
@@ -62,6 +81,12 @@ const defaultLog: HookLog = {
  * whose `when:` expression evaluates falsy are skipped without sandbox
  * setup costs.
  *
+ * Hook-defined prompts (M7.5): if a hook declares `prompts:`, those
+ * prompts fire just before the hook's body runs. Answers land at
+ * `answers.hooks.<name>.*` (shared read for the hook script, isolated
+ * write to the hook's namespace). The returned `Answers` reflect the
+ * merged state so the caller can thread it through to the next phase.
+ *
  * A throwing hook aborts the lifecycle (the remaining hooks at the same
  * lifecycle do NOT run) and surfaces as a {@link HookExecutionError}.
  * The caller (`renderBundle`) catches nothing — the error propagates out
@@ -75,14 +100,14 @@ export async function runJsHooks(
   outputPath: string,
   answers: Answers,
   opts: RunJsHooksOptions = {},
-): Promise<void> {
-  const eligible = hooks.filter((h) => !h.when || evalWhen(h.when, answers));
-  if (eligible.length === 0) return;
+): Promise<Answers> {
+  let live: Answers = answers;
+  const eligible = hooks.filter((h) => !h.when || evalWhen(h.when, live));
+  if (eligible.length === 0) return live;
 
   const sandbox = await createSandbox();
   try {
     sandbox.installProjectFs(new ProjectFs(outputPath));
-    sandbox.installGlobal('answers', answers);
     sandbox.installGlobal('recipe', opts.recipe ?? null);
     const log = opts.log ?? defaultLog;
     sandbox.installHostObject('log', {
@@ -109,6 +134,22 @@ export async function runJsHooks(
           hook.js,
         );
       }
+
+      if (hook.prompts && hook.prompts.length > 0) {
+        if (!opts.prompter) {
+          throw new HookExecutionError(
+            `${lifecycle} hook "${hook.js}" declares prompts but no prompter is configured`,
+            lifecycle,
+            hook.js,
+          );
+        }
+        const ns = hookNamespace(hook);
+        const namespaced = await runPrompts(hook.prompts, opts.prompter, {});
+        live = mergeHookAnswers(live, ns, namespaced);
+      }
+
+      sandbox.installGlobal('answers', live);
+
       try {
         sandbox.runScript(source, hook.js);
       } catch (err) {
@@ -124,4 +165,21 @@ export async function runJsHooks(
   } finally {
     sandbox.dispose();
   }
+  return live;
+}
+
+/**
+ * Return a new answers object with the hook's prompt answers merged at
+ * `answers.hooks.<ns>`. Existing entries under that namespace are
+ * replaced wholesale — hook prompts fire once per render, so any prior
+ * answers at that key are stale.
+ */
+function mergeHookAnswers(answers: Answers, ns: string, hookAnswers: Answers): Answers {
+  const prevHooks = answers.hooks;
+  const hooks: Record<string, Answers> =
+    prevHooks && typeof prevHooks === 'object' && !Array.isArray(prevHooks)
+      ? { ...(prevHooks as Record<string, Answers>) }
+      : {};
+  hooks[ns] = hookAnswers;
+  return { ...answers, hooks };
 }

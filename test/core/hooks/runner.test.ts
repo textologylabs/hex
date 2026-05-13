@@ -3,6 +3,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HookExecutionError, type HookLog, runJsHooks } from '../../../src/core/hooks/runner.js';
+import type { Prompt } from '../../../src/core/manifest/types.js';
+import type { Prompter } from '../../../src/core/prompts/types.js';
+
+function stubPrompter(scripted: Record<string, unknown>): Prompter {
+  return {
+    async text(opts) {
+      return String(scripted[opts.message] ?? '');
+    },
+    async confirm(opts) {
+      return Boolean(scripted[opts.message]);
+    },
+    async select(opts) {
+      return String(scripted[opts.message] ?? opts.choices[0]);
+    },
+    async multiselect() {
+      return [];
+    },
+    async password() {
+      return '';
+    },
+  };
+}
 
 let work: string;
 
@@ -27,8 +49,9 @@ function captureLog(): { log: HookLog; entries: Array<{ level: string; msg: stri
 }
 
 describe('runJsHooks', () => {
-  it('is a no-op when there are no hooks', async () => {
-    await expect(runJsHooks('pre_render', [], {}, work, {})).resolves.toBeUndefined();
+  it('returns the input answers unchanged when there are no hooks', async () => {
+    const initial = { kept: 'as-is' };
+    expect(await runJsHooks('pre_render', [], {}, work, initial)).toEqual(initial);
   });
 
   it('executes a pre_render hook and lets it write into the output dir', async () => {
@@ -153,6 +176,133 @@ describe('runJsHooks', () => {
     }
     expect(thrown).toBeInstanceOf(HookExecutionError);
     expect((thrown as HookExecutionError).message).toMatch(/escapes project root/);
+  });
+
+  describe('hook-defined prompts (M7.5)', () => {
+    const namePrompt: Prompt = { name: 'replicas', def: { type: 'string', default: '1' } };
+
+    it('fires hook prompts and namespaces answers under hooks.<derived-name>', async () => {
+      const prompter = stubPrompter({ replicas: '3' });
+      const sources = {
+        'scale.js': "project.write('out.txt', 'replicas=' + answers.hooks.scale.replicas);",
+      };
+      const updated = await runJsHooks(
+        'post_render',
+        [{ js: 'scale.js', prompts: [namePrompt] }],
+        sources,
+        work,
+        { baseline: 'on' },
+        { prompter },
+      );
+      expect(await readFile(join(work, 'out.txt'), 'utf8')).toBe('replicas=3');
+      expect(updated).toEqual({
+        baseline: 'on',
+        hooks: { scale: { replicas: '3' } },
+      });
+    });
+
+    it('respects an explicit name: override for the namespace', async () => {
+      const prompter = stubPrompter({ replicas: '5' });
+      const sources = {
+        'h.js': "project.write('ns.txt', JSON.stringify(answers.hooks));",
+      };
+      const updated = await runJsHooks(
+        'pre_render',
+        [{ js: 'h.js', name: 'scale-up', prompts: [namePrompt] }],
+        sources,
+        work,
+        {},
+        { prompter },
+      );
+      expect(JSON.parse(await readFile(join(work, 'ns.txt'), 'utf8'))).toEqual({
+        'scale-up': { replicas: '5' },
+      });
+      expect(updated.hooks).toEqual({ 'scale-up': { replicas: '5' } });
+    });
+
+    it('isolates namespaces between two hooks at the same lifecycle', async () => {
+      const prompter = stubPrompter({ replicas: '2' });
+      const sources = {
+        'a.js': "project.write('a.txt', JSON.stringify(answers.hooks));",
+        'b.js': "project.write('b.txt', JSON.stringify(answers.hooks));",
+      };
+      // B sees A's namespace already populated (subsequent hook within
+      // the same lifecycle reads the merged tree). A does not see B's.
+      await runJsHooks(
+        'post_render',
+        [
+          { js: 'a.js', name: 'first', prompts: [namePrompt] },
+          { js: 'b.js', name: 'second', prompts: [namePrompt] },
+        ],
+        sources,
+        work,
+        {},
+        { prompter },
+      );
+      expect(JSON.parse(await readFile(join(work, 'a.txt'), 'utf8'))).toEqual({
+        first: { replicas: '2' },
+      });
+      expect(JSON.parse(await readFile(join(work, 'b.txt'), 'utf8'))).toEqual({
+        first: { replicas: '2' },
+        second: { replicas: '2' },
+      });
+    });
+
+    it('lets a hook read the full answers tree (shared read)', async () => {
+      const prompter = stubPrompter({ replicas: '1' });
+      const sources = {
+        'h.js': "project.write('view.txt', answers.parent_key + ':' + answers.hooks.h.replicas);",
+      };
+      await runJsHooks(
+        'pre_render',
+        [{ js: 'h.js', prompts: [namePrompt] }],
+        sources,
+        work,
+        { parent_key: 'seen' },
+        { prompter },
+      );
+      expect(await readFile(join(work, 'view.txt'), 'utf8')).toBe('seen:1');
+    });
+
+    it('fails clearly when a hook declares prompts but no prompter is configured', async () => {
+      const sources = { 'h.js': "project.write('x.txt', '');" };
+      await expect(
+        runJsHooks('pre_render', [{ js: 'h.js', prompts: [namePrompt] }], sources, work, {}),
+      ).rejects.toThrow(/declares prompts but no prompter is configured/);
+    });
+
+    it('skips hook prompts when the hook is when:-falsy (no prompter call at all)', async () => {
+      let calls = 0;
+      const prompter: Prompter = {
+        async text() {
+          calls += 1;
+          return 'never';
+        },
+        async confirm() {
+          return false;
+        },
+        async select() {
+          return '';
+        },
+        async multiselect() {
+          return [];
+        },
+        async password() {
+          return '';
+        },
+      };
+      const sources = { 'h.js': "project.write('x.txt', 'ran');" };
+      await runJsHooks(
+        'pre_render',
+        [{ js: 'h.js', when: 'enabled', prompts: [namePrompt] }],
+        sources,
+        work,
+        { enabled: false },
+        { prompter },
+      );
+      expect(calls).toBe(0);
+      await expect(readFile(join(work, 'x.txt'), 'utf8')).rejects.toThrow();
+    });
   });
 
   it('runs many hooks in declaration order within a single sandbox', async () => {

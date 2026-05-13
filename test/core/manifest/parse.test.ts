@@ -260,6 +260,58 @@ describe('parseManifestObject — hooks', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts a JS hook with an explicit name and a desugared prompts block', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      hooks: {
+        post_render: [
+          {
+            js: 'cleanup.js',
+            name: 'cleanup',
+            prompts: [{ confirm_purge: { type: 'boolean', default: false } }],
+          },
+        ],
+      },
+    });
+    const hook = m.hooks?.post_render?.[0];
+    expect(hook).toEqual({
+      js: 'cleanup.js',
+      name: 'cleanup',
+      prompts: [{ name: 'confirm_purge', def: { type: 'boolean', default: false } }],
+    });
+  });
+
+  it('desugars shorthand inside a JS hook prompts block', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      hooks: {
+        pre_render: [{ js: 'prep.js', prompts: [{ greeting: 'hello' }] }],
+      },
+    });
+    const hook = m.hooks?.pre_render?.[0];
+    expect(hook?.prompts).toEqual([
+      { name: 'greeting', def: { type: 'string', default: 'hello' } },
+    ]);
+  });
+
+  it('rejects a JS hook name with invalid characters', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        hooks: { post_render: [{ js: 'h.js', name: 'Has Spaces' }] },
+      }),
+    ).toThrow(/js hook name must be kebab\/snake-case/);
+  });
+
+  it('surfaces a hook-prompt desugar error with the hook path in the message', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        hooks: { post_render: [{ js: 'h.js', prompts: ['not-a-map'] }] },
+      }),
+    ).toThrow(/hooks\.post_render\[0\]\.prompts/);
+  });
 });
 
 describe('parseManifestObject — include rules', () => {
