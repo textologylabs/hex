@@ -1,10 +1,12 @@
 import {
   type QuickJSContext,
+  type QuickJSHandle,
   type QuickJSRuntime,
   type QuickJSWASMModule,
   getQuickJS,
   shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten';
+import { type ProjectFs, ProjectFsError } from './project-fs.js';
 
 export class SandboxError extends Error {
   constructor(message: string) {
@@ -82,6 +84,61 @@ export class Sandbox {
     return value;
   }
 
+  /**
+   * Install a sandboxed `project.*` API into the sandbox's globalThis.
+   *
+   * Exposes `read`, `write`, `delete`, `exists`, and `list` as host functions
+   * that call through to {@link ProjectFs}. Path-traversal and symlink-escape
+   * rejections surface inside the hook as thrown JS errors with usable
+   * messages, not as silent failures.
+   *
+   * Safe to call once per sandbox. Calling twice replaces the previous
+   * `project` global.
+   */
+  installProjectFs(fs: ProjectFs): void {
+    if (this.disposed) {
+      throw new SandboxError('Sandbox has been disposed');
+    }
+
+    const ctx = this.context;
+    const projectObj = ctx.newObject();
+
+    const bind = (
+      name: 'read' | 'write' | 'delete' | 'exists' | 'list',
+      impl: (args: unknown[]) => unknown,
+    ): void => {
+      const handle = ctx.newFunction(name, (...argHandles) => {
+        const args = argHandles.map((h) => ctx.dump(h));
+        try {
+          const result = impl(args);
+          return marshal(ctx, result);
+        } catch (err) {
+          const message =
+            err instanceof ProjectFsError || err instanceof Error ? err.message : String(err);
+          const name_ = err instanceof Error && typeof err.name === 'string' ? err.name : 'Error';
+          return { error: ctx.newError({ name: name_, message }) };
+        }
+      });
+      ctx.setProp(projectObj, name, handle);
+      handle.dispose();
+    };
+
+    bind('read', (args) => fs.read(args[0] as string));
+    bind('write', (args) => {
+      fs.write(args[0] as string, args[1] as string);
+      return undefined;
+    });
+    bind('delete', (args) => {
+      fs.delete(args[0] as string);
+      return undefined;
+    });
+    bind('exists', (args) => fs.exists(args[0] as string));
+    bind('list', (args) => fs.list(args[0] as string));
+
+    ctx.setProp(ctx.global, 'project', projectObj);
+    projectObj.dispose();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.context.dispose();
@@ -92,6 +149,31 @@ export class Sandbox {
   get isDisposed(): boolean {
     return this.disposed;
   }
+}
+
+function marshal(ctx: QuickJSContext, value: unknown): QuickJSHandle {
+  if (value === undefined || value === null) {
+    return ctx.undefined;
+  }
+  if (typeof value === 'string') {
+    return ctx.newString(value);
+  }
+  if (typeof value === 'number') {
+    return ctx.newNumber(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? ctx.true : ctx.false;
+  }
+  if (Array.isArray(value)) {
+    const arr = ctx.newArray();
+    for (let i = 0; i < value.length; i += 1) {
+      const elem = marshal(ctx, value[i]);
+      ctx.setProp(arr, i, elem);
+      elem.dispose();
+    }
+    return arr;
+  }
+  throw new SandboxError(`cannot marshal value of type ${typeof value} into sandbox`);
 }
 
 /**
