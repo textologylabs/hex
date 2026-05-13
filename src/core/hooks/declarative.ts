@@ -60,9 +60,11 @@ export async function runPostRenderHooks(
   for (const hook of hooks) {
     if ('rename' in hook) {
       await applyRename(hook.rename, outputPath, answers, live, result, force);
-    } else {
+    } else if ('delete' in hook) {
       await applyDelete(hook.delete, outputPath, answers, live, result);
     }
+    // JS hooks ({ js: ... }) are handled by the sandbox pipeline (M7.4),
+    // not by the declarative runner — skip them here.
   }
 
   return result;

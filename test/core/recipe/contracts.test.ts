@@ -19,14 +19,14 @@ function child(key: string, manifest: Manifest, resolved?: ResolvedRecipe): Chil
   return {
     key,
     ref: { kind: 'name', name: manifest.name, versionSpec: '*' },
-    bundle: { manifest, rootPath: `/fake/${key}` },
+    bundle: { manifest, rootPath: `/fake/${key}`, jsHookSources: {} },
     resolved,
   };
 }
 
 function recipe(name: string, children: ChildResolution[]): ResolvedRecipe {
   return {
-    recipeBundle: { manifest: recipeManifest(name), rootPath: `/fake/${name}` },
+    recipeBundle: { manifest: recipeManifest(name), rootPath: `/fake/${name}`, jsHookSources: {} },
     children: new Map(children.map((c) => [c.key, c])),
   };
 }
@@ -161,7 +161,7 @@ describe('validateContracts — sub-recipes', () => {
       {
         key: 'inner',
         ref: { kind: 'name', name: 'inner', versionSpec: '*' },
-        bundle: { manifest: recipeManifest('inner'), rootPath: '/fake/inner' },
+        bundle: { manifest: recipeManifest('inner'), rootPath: '/fake/inner', jsHookSources: {} },
         resolved: innerBad,
       },
     ]);
@@ -179,7 +179,7 @@ describe('validateContracts — sub-recipes', () => {
       {
         key: 'inner',
         ref: { kind: 'name', name: 'inner', versionSpec: '*' },
-        bundle: { manifest: recipeManifest('inner'), rootPath: '/fake/inner' },
+        bundle: { manifest: recipeManifest('inner'), rootPath: '/fake/inner', jsHookSources: {} },
         resolved: inner,
       },
     ]);

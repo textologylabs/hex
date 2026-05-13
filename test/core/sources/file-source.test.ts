@@ -96,4 +96,75 @@ version: 0.1.0
       process.chdir(cwd);
     }
   });
+
+  it('defaults jsHookSources to an empty record when the manifest declares no JS hooks', async () => {
+    await writeManifest(
+      work,
+      `type: component
+name: demo
+version: 0.1.0
+`,
+    );
+    const bundle = await loadFromPath(work);
+    expect(bundle.jsHookSources).toEqual({});
+  });
+
+  it('reads every JS hook referenced by the manifest into jsHookSources', async () => {
+    await writeManifest(
+      work,
+      `type: component
+name: demo
+version: 0.1.0
+hooks:
+  pre_render:
+    - { js: prep.js }
+  post_render:
+    - { js: post_render.js }
+    - { rename: { from: gitignore, to: .gitignore } }
+`,
+    );
+    await mkdir(join(work, '.hex', 'hooks'), { recursive: true });
+    await writeFile(join(work, '.hex', 'hooks', 'prep.js'), '/* prep */', 'utf8');
+    await writeFile(join(work, '.hex', 'hooks', 'post_render.js'), '/* post */', 'utf8');
+    const bundle = await loadFromPath(work);
+    expect(bundle.jsHookSources).toEqual({
+      'prep.js': '/* prep */',
+      'post_render.js': '/* post */',
+    });
+  });
+
+  it('deduplicates JS hooks referenced from multiple lifecycles', async () => {
+    await writeManifest(
+      work,
+      `type: component
+name: demo
+version: 0.1.0
+hooks:
+  pre_render:
+    - { js: shared.js }
+  post_render:
+    - { js: shared.js }
+`,
+    );
+    await mkdir(join(work, '.hex', 'hooks'), { recursive: true });
+    await writeFile(join(work, '.hex', 'hooks', 'shared.js'), '/* shared */', 'utf8');
+    const bundle = await loadFromPath(work);
+    expect(bundle.jsHookSources).toEqual({ 'shared.js': '/* shared */' });
+  });
+
+  it('throws a clear authoring error when a manifest-declared JS hook is missing', async () => {
+    await writeManifest(
+      work,
+      `type: component
+name: demo
+version: 0.1.0
+hooks:
+  post_render:
+    - { js: missing.js }
+`,
+    );
+    await expect(loadFromPath(work)).rejects.toThrow(
+      /post_render hook "missing.js" declared in manifest but file not found/,
+    );
+  });
 });

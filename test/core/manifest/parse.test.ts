@@ -196,6 +196,70 @@ describe('parseManifestObject — hooks', () => {
       delete: { glob: 'src/examples/**', when: '!include_examples' },
     });
   });
+
+  it('accepts a post_render JS hook with declarative hooks alongside', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      hooks: {
+        post_render: [
+          { rename: { from: 'gitignore', to: '.gitignore' } },
+          { js: 'post_render.js' },
+          { delete: { path: 'tmp.txt' } },
+        ],
+      },
+    });
+    expect(m.hooks?.post_render).toEqual([
+      { rename: { from: 'gitignore', to: '.gitignore' } },
+      { js: 'post_render.js' },
+      { delete: { path: 'tmp.txt' } },
+    ]);
+  });
+
+  it('accepts a pre_render JS hook with when:', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      hooks: {
+        pre_render: [{ js: 'prep.js', when: 'use_react' }],
+      },
+    });
+    expect(m.hooks?.pre_render?.[0]).toEqual({ js: 'prep.js', when: 'use_react' });
+  });
+
+  it('rejects a JS hook whose filename contains a path separator', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        hooks: { post_render: [{ js: 'sub/post_render.js' }] },
+      }),
+    ).toThrow(/no path separators/);
+  });
+
+  it('rejects a JS hook whose filename traverses upward', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        hooks: { post_render: [{ js: '../escape.js' }] },
+      }),
+    ).toThrow(/no `\.\.`/);
+  });
+
+  it('rejects a JS hook whose filename does not end in .js', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        hooks: { post_render: [{ js: 'post_render.ts' }] },
+      }),
+    ).toThrow(/plain `\.js` filename/);
+  });
+
+  it('rejects an empty JS hook filename', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        hooks: { post_render: [{ js: '' }] },
+      }),
+    ).toThrow();
+  });
 });
 
 describe('parseManifestObject — include rules', () => {

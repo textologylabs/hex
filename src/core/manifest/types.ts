@@ -63,9 +63,21 @@ export type DeleteHook = {
   delete: ({ path: string } | { glob: string }) & { when?: string };
 };
 
-export type PostRenderHook = RenameHook | DeleteHook;
+/**
+ * JS hook declaration. `js` is the filename inside `.hex/hooks/` — no
+ * subdirectories, no traversal. The bundle loader reads the file at load
+ * time and attaches its source under `ComponentBundle.jsHookSources`.
+ */
+export type JsHook = {
+  js: string;
+  when?: string;
+};
+
+export type PostRenderHook = RenameHook | DeleteHook | JsHook;
+export type PreRenderHook = JsHook;
 
 export type Hooks = {
+  pre_render?: PreRenderHook[];
   post_render?: PostRenderHook[];
 };
 

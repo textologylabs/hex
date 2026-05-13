@@ -82,9 +82,28 @@ export const deleteHookSchema = z.object({
     }),
 });
 
-const postRenderHookSchema = z.union([renameHookSchema, deleteHookSchema]);
+// JS hook (M7.3): `{ js: '<filename>' }` references a file inside the
+// bundle's `.hex/hooks/` directory. The filename is a leaf — no path
+// separators, no traversal — so a manifest cannot reach outside its own
+// hooks directory just by declaring a hook. Bundle loader (M7.3) reads
+// the file at load time and fails clearly if it's missing.
+const HOOK_FILENAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*\.js$/;
+export const jsHookSchema = z.object({
+  js: z
+    .string()
+    .min(1)
+    .regex(
+      HOOK_FILENAME_RE,
+      'js hook filename must be a plain `.js` filename inside `.hex/hooks/` (no path separators, no `..`)',
+    ),
+  when: z.string().optional(),
+});
+
+const postRenderHookSchema = z.union([renameHookSchema, deleteHookSchema, jsHookSchema]);
+const preRenderHookSchema = jsHookSchema;
 
 export const hooksSchema = z.object({
+  pre_render: z.array(preRenderHookSchema).optional(),
   post_render: z.array(postRenderHookSchema).optional(),
 });
 
