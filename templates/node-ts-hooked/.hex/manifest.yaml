@@ -1,0 +1,38 @@
+type: component
+name: node-ts-hooked
+version: 0.1.0
+kind: dogfood
+
+# M7 dogfood — a minimal node-ts component that exercises the full
+# JS-hook sandbox surface end-to-end:
+#
+# - pre_render hook logs the rendering context (answers, recipe metadata)
+# - post_render hook declares its own `prompts:` block, reads the
+#   rendered package.json via project.read, conditionally patches in
+#   a `repository` field, and writes back via project.write.
+#
+# Not intended as a useful scaffolding starting point — it's the live
+# regression test for M7 wiring.
+
+prompts:
+  - project_name:
+      type: string
+      required: true
+      description: Package name
+      pattern: '^[a-z][a-z0-9-]*$'
+  - description:
+      type: string
+      default: ''
+      description: Short description
+
+hooks:
+  pre_render:
+    - js: pre_render.js
+  post_render:
+    - js: post_render.js
+      name: repository
+      prompts:
+        - github_coord:
+            type: string
+            default: ''
+            description: GitHub repo coordinate (owner/name) — leave blank to skip the repository field
