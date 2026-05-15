@@ -8,6 +8,7 @@ import {
   renderBundle,
 } from '../render/engine.js';
 import { renderText } from '../render/templating.js';
+import { collectStubServices, engineSymbolPrefix } from '../stub/services.js';
 import type { ResolvedRecipe } from './resolve.js';
 
 export type ChildRenderResult = RenderResult & {
@@ -95,7 +96,20 @@ export async function renderRecipe(
   // `provided.<symbol>`. Provides expressions intentionally do NOT see other
   // children's `provided` — keeps the resolution order single-pass.
   const provided = collectProvided(resolved, answers);
-  const answersWithProvided: Answers = { ...answers, provided };
+
+  // M8.3: dedup out-of-process stub engines across stubbed children into
+  // one shared service each. Coordinates land in `provided.*` (so any
+  // child consuming a stub can reach `provided.STUB_WIREMOCK_HOST`);
+  // the full list lands as `stub_services` so the recipe-root
+  // `docker-compose.yml` template can `{% for %}` over it — emitting one
+  // service block per engine, dedup falling out of the deduped list.
+  const stubServices = collectStubServices(resolved);
+  for (const svc of stubServices) {
+    const prefix = engineSymbolPrefix(svc.engine);
+    provided[`${prefix}_HOST`] = svc.host;
+    provided[`${prefix}_PORT`] = String(svc.port);
+  }
+  const answersWithProvided: Answers = { ...answers, provided, stub_services: stubServices };
 
   for (const [key, child] of resolved.children) {
     const subdir = resolveChildSubdir(key, answersWithProvided);

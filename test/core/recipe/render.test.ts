@@ -879,3 +879,74 @@ stub:
     expect(await buildStubRecipe(false)).toBe('stub=false');
   });
 });
+
+describe('renderRecipe — out-of-process stub engine dedup (M8.3)', () => {
+  async function buildWiremockRecipe(secondChildStub: boolean): Promise<string> {
+    const recipeRoot = join(work, 'recipe');
+    const apiRoot = join(work, 'children', 'api');
+    const payRoot = join(work, 'children', 'pay');
+    await writeManifest(
+      recipeRoot,
+      `type: recipe
+name: demo
+version: 0.1.0
+composes:
+  api:
+    component: file:../children/api
+    stub: true
+  pay:
+    component: file:../children/pay
+${secondChildStub ? '    stub: true\n' : ''}`,
+    );
+    // Recipe-root docker-compose template iterates the deduped service list.
+    await writeFileEnsure(
+      join(recipeRoot, 'docker-compose.yml'),
+      `services:
+{% for svc in stub_services %}  {{ svc.engine }}:
+    ports: ["{{ svc.port }}:{{ svc.port }}"]
+{% endfor %}`,
+    );
+    for (const [root, name] of [
+      [apiRoot, 'api-stub'],
+      [payRoot, 'pay-stub'],
+    ] as const) {
+      await writeManifest(
+        root,
+        `type: component
+name: ${name}
+version: 1.0.0
+stub:
+  engine: wiremock
+`,
+      );
+      await writeFileEnsure(
+        join(root, 'endpoint.txt'),
+        'mock={{ provided.STUB_WIREMOCK_HOST }}:{{ provided.STUB_WIREMOCK_PORT }}',
+      );
+    }
+
+    const resolved = await loadResolved(recipeRoot);
+    const out = join(work, 'out');
+    await renderRecipe(resolved, out, {});
+    return out;
+  }
+
+  it('emits one shared wiremock service for two children stubbing the same engine', async () => {
+    const out = await buildWiremockRecipe(true);
+    const compose = await readFile(join(out, 'docker-compose.yml'), 'utf8');
+    expect(compose.match(/wiremock:/g) ?? []).toHaveLength(1);
+    expect(compose).toContain('ports: ["8080:8080"]');
+  });
+
+  it('wires both stubbed children to the shared service coordinates', async () => {
+    const out = await buildWiremockRecipe(true);
+    expect(await readFile(join(out, 'api', 'endpoint.txt'), 'utf8')).toBe('mock=wiremock:8080');
+    expect(await readFile(join(out, 'pay', 'endpoint.txt'), 'utf8')).toBe('mock=wiremock:8080');
+  });
+
+  it('a non-stubbed sibling adds no second service (only api stubbed)', async () => {
+    const out = await buildWiremockRecipe(false);
+    const compose = await readFile(join(out, 'docker-compose.yml'), 'utf8');
+    expect(compose.match(/wiremock:/g) ?? []).toHaveLength(1);
+  });
+});
