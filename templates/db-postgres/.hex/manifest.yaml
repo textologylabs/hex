@@ -1,0 +1,28 @@
+type: component
+name: db-postgres
+version: 2.0.0
+kind: db
+
+# M8 reference — a stubbable Postgres data-access component. Demonstrates
+# the full stub surface:
+#   - `stub:` block declaring the pg-mem engine + a fixtures directory
+#   - separate prod / dev entry points (src/index.ts vs src/index.dev.ts)
+#   - the stub engine isolated in devDependencies
+#   - fixtures rendered into the user's tree only in stub mode
+#
+# Passes `hex lint` clean. Used by the M8.7 integration test.
+
+stub:
+  engine: pg-mem
+  fixtures: fixtures
+
+prompts:
+  - app_name:
+      type: string
+      required: true
+      description: Application name
+      pattern: '^[a-z][a-z0-9-]*$'
+  - database_url:
+      type: string
+      default: postgres://localhost:5432/app
+      description: Postgres connection URL (production mode)
