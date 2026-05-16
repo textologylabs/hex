@@ -23,11 +23,17 @@ type EngineInfo = {
   process: EngineProcessModel;
   /** Default container port — defined for out-of-process engines only. */
   port?: number;
+  /**
+   * npm package an in-process engine ships as — the library a stubbable
+   * component must list in `devDependencies`. Undefined for
+   * out-of-process engines (they run as a container, not a dependency).
+   */
+  npmPackage?: string;
 };
 
 const CATALOGUE: Record<StubEngine, EngineInfo> = {
-  'pg-mem': { process: 'in-process' },
-  msw: { process: 'in-process' },
+  'pg-mem': { process: 'in-process', npmPackage: 'pg-mem' },
+  msw: { process: 'in-process', npmPackage: 'msw' },
   wiremock: { process: 'out-of-process', port: 8080 },
 };
 
@@ -42,4 +48,13 @@ export function isOutOfProcess(engine: StubEngine): boolean {
 /** Container port for an out-of-process engine; `undefined` otherwise. */
 export function enginePort(engine: StubEngine): number | undefined {
   return CATALOGUE[engine].port;
+}
+
+/**
+ * npm package an in-process engine is distributed as — the library a
+ * stubbable component must keep in `devDependencies`. `undefined` for
+ * out-of-process engines.
+ */
+export function engineNpmPackage(engine: StubEngine): string | undefined {
+  return CATALOGUE[engine].npmPackage;
 }
