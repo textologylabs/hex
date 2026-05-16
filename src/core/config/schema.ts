@@ -11,6 +11,36 @@ const gitSourceSchema = z.object({
 
 export const sourceRootSchema = z.union([pathSourceSchema, gitSourceSchema]);
 
-export const hexConfigSchema = z.object({
-  sources: z.array(sourceRootSchema).default([]),
+// Marketplace ids are address qualifiers (`<id>/<name>`) — same charset
+// the addressing parser accepts (see `core/marketplace/address.ts`).
+const MARKETPLACE_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+const marketplaceSchema = z.object({
+  id: z.string().regex(MARKETPLACE_ID_RE, 'marketplace id must be lowercase alphanumeric/.-_'),
+  registry: z.string().min(1),
 });
+
+export const hexConfigSchema = z
+  .object({
+    sources: z.array(sourceRootSchema).default([]),
+    /**
+     * Configured marketplaces, in resolution order. Order drives
+     * bare-name precedence (first hit wins); qualified `<id>/<name>`
+     * addresses disambiguate explicitly. See M9.4 / M9.5.
+     */
+    marketplaces: z.array(marketplaceSchema).default([]),
+  })
+  .superRefine((cfg, ctx) => {
+    const seen = new Set<string>();
+    for (let i = 0; i < cfg.marketplaces.length; i++) {
+      const id = (cfg.marketplaces[i] as { id: string }).id;
+      if (seen.has(id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['marketplaces', i, 'id'],
+          message: `duplicate marketplace id "${id}"`,
+        });
+      }
+      seen.add(id);
+    }
+  });

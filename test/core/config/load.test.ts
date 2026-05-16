@@ -17,13 +17,13 @@ afterEach(async () => {
 describe('loadConfig', () => {
   it('returns empty sources when the config file is absent', async () => {
     const cfg = await loadConfig({ configDir: dir });
-    expect(cfg).toEqual({ sources: [] });
+    expect(cfg).toEqual({ sources: [], marketplaces: [] });
   });
 
   it('returns empty sources when the config file is empty', async () => {
     await writeFile(join(dir, 'config.yaml'), '', 'utf8');
     const cfg = await loadConfig({ configDir: dir });
-    expect(cfg).toEqual({ sources: [] });
+    expect(cfg).toEqual({ sources: [], marketplaces: [] });
   });
 
   it('parses a config with multiple absolute source roots', async () => {
@@ -126,6 +126,53 @@ describe('loadConfig', () => {
 
   it('throws ConfigError on schema violation', async () => {
     await writeFile(join(dir, 'config.yaml'), 'sources:\n  - { wrong_field: value }\n', 'utf8');
+    await expect(loadConfig({ configDir: dir })).rejects.toThrow(ConfigError);
+  });
+
+  it('parses a marketplaces block in declared order', async () => {
+    await writeFile(
+      join(dir, 'config.yaml'),
+      `marketplaces:
+  - id: hex
+    registry: https://registry.hex.dev/
+  - id: acme
+    registry: https://mkt.acme.internal/
+`,
+      'utf8',
+    );
+    const cfg = await loadConfig({ configDir: dir });
+    expect(cfg.marketplaces).toEqual([
+      { id: 'hex', registry: 'https://registry.hex.dev/' },
+      { id: 'acme', registry: 'https://mkt.acme.internal/' },
+    ]);
+  });
+
+  it('defaults marketplaces to empty when the block is absent', async () => {
+    await writeFile(join(dir, 'config.yaml'), 'sources:\n  - path: /x\n', 'utf8');
+    const cfg = await loadConfig({ configDir: dir });
+    expect(cfg.marketplaces).toEqual([]);
+  });
+
+  it('rejects a duplicate marketplace id', async () => {
+    await writeFile(
+      join(dir, 'config.yaml'),
+      `marketplaces:
+  - id: hex
+    registry: https://a/
+  - id: hex
+    registry: https://b/
+`,
+      'utf8',
+    );
+    await expect(loadConfig({ configDir: dir })).rejects.toThrow(/duplicate marketplace id/);
+  });
+
+  it('rejects an invalid marketplace id', async () => {
+    await writeFile(
+      join(dir, 'config.yaml'),
+      'marketplaces:\n  - { id: "Bad ID", registry: https://a/ }\n',
+      'utf8',
+    );
     await expect(loadConfig({ configDir: dir })).rejects.toThrow(ConfigError);
   });
 });

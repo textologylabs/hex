@@ -56,7 +56,7 @@ export async function loadConfig(opts?: LoadConfigOpts): Promise<HexConfig> {
     raw = await readFile(configPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { sources: [] };
+      return { sources: [], marketplaces: [] };
     }
     throw new ConfigError(
       `cannot read config: ${err instanceof Error ? err.message : String(err)}`,
@@ -75,7 +75,7 @@ export async function loadConfig(opts?: LoadConfigOpts): Promise<HexConfig> {
   }
 
   // Empty file → empty config. yaml.parse returns null for an empty doc.
-  if (data === null || data === undefined) return { sources: [] };
+  if (data === null || data === undefined) return { sources: [], marketplaces: [] };
 
   const result = hexConfigSchema.safeParse(data);
   if (!result.success) {
@@ -92,6 +92,7 @@ export async function loadConfig(opts?: LoadConfigOpts): Promise<HexConfig> {
       }
       return { kind: 'git' as const, url: s.git, ref: s.ref };
     }),
+    marketplaces: result.data.marketplaces.map((m) => ({ id: m.id, registry: m.registry })),
   };
 }
 
