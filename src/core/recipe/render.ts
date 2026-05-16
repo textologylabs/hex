@@ -144,7 +144,12 @@ export async function renderRecipe(
       continue;
     }
 
-    const result = await renderBundle(child.bundle, childOut, childScope, childOpts);
+    // M8.4: a component child rendered in stub mode emits its
+    // `stub.fixtures` directory into `<childOut>/fixtures/`.
+    const result = await renderBundle(child.bundle, childOut, childScope, {
+      ...childOpts,
+      stubEnabled: child.ref.stub === true,
+    });
     childResults.set(key, { ...result, subdir, outputPath: childOut });
   }
 

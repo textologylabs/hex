@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { type HookResult, runPostRenderHooks } from '../hooks/declarative.js';
 import { type HookLog, type RecipeContext, runJsHooks } from '../hooks/runner.js';
 import type { JsHook } from '../manifest/types.js';
@@ -55,6 +55,13 @@ export type RenderOptions = {
    * ignore the flag and stay sandboxed.
    */
   trustLocal?: boolean;
+  /**
+   * Stub mode for this bundle (M8.4). When true and the manifest
+   * declares `stub.fixtures`, that fixtures directory is rendered into
+   * `<output>/fixtures/`. Set per-child by `renderRecipe` from the
+   * recipe's `stub: true` slot decision; absent for non-stub renders.
+   */
+  stubEnabled?: boolean;
 };
 
 const BINARY_SAMPLE_BYTES = 8192;
@@ -154,8 +161,18 @@ export async function renderBundle(
   const includeRules = bundle.manifest.include ?? [];
   const written: string[] = [];
 
+  // A stubbable component's `stub.fixtures` directory is excluded from
+  // the normal walk unconditionally — it is emitted (into a fixed
+  // `fixtures/` subtree) only via the stub-mode path below, never as a
+  // plain template file.
+  const fixturesDir = bundle.manifest.stub?.fixtures;
+  const ignorePatterns = [...(opts.extraIgnorePatterns ?? [])];
+  if (fixturesDir) {
+    ignorePatterns.push(`${fixturesDir.replace(/\/+$/, '')}/`);
+  }
+
   for await (const file of walkTemplate(bundle.rootPath, {
-    extraIgnorePatterns: opts.extraIgnorePatterns,
+    extraIgnorePatterns: ignorePatterns,
   })) {
     if (!shouldInclude(file.relativePath, includeRules, live)) continue;
 
@@ -177,6 +194,13 @@ export async function renderBundle(
     written.push(renderedRel);
   }
 
+  // M8.4: stub fixtures render after the main walk (so they are part of
+  // the tree the declarative + post_render hooks observe) but only when
+  // this bundle renders in stub mode.
+  if (opts.stubEnabled && fixturesDir) {
+    written.push(...(await renderFixtures(bundle.rootPath, fixturesDir, absOut, live)));
+  }
+
   const postRenderHooks = bundle.manifest.hooks?.post_render ?? [];
   const hookResult = await runPostRenderHooks(absOut, postRenderHooks, live, written, {
     force: opts.force ?? false,
@@ -195,4 +219,65 @@ export async function renderBundle(
   }
 
   return { written, ...hookResult };
+}
+
+/**
+ * Render a stubbable component's `stub.fixtures` directory into
+ * `<output>/fixtures/` (M8.4).
+ *
+ * Fixtures pass through the same Nunjucks engine as scaffolding files —
+ * both path segments and text contents — so seed data can reference
+ * recipe answers. Binary fixture files are copied verbatim. The target
+ * directory name is always `fixtures/`, regardless of what the manifest
+ * named the source.
+ *
+ * Returns the list of emitted paths (each prefixed `fixtures/`) so the
+ * caller can fold them into the render result.
+ */
+async function renderFixtures(
+  bundleRoot: string,
+  fixturesRel: string,
+  absOut: string,
+  answers: Answers,
+): Promise<string[]> {
+  const srcRoot = resolve(bundleRoot, fixturesRel);
+  const bundleAbs = resolve(bundleRoot);
+  if (srcRoot !== bundleAbs && !srcRoot.startsWith(bundleAbs + sep)) {
+    throw new RenderError(`stub fixtures path escapes the component: ${fixturesRel}`);
+  }
+
+  let srcStat: Awaited<ReturnType<typeof stat>>;
+  try {
+    srcStat = await stat(srcRoot);
+  } catch {
+    throw new RenderError(
+      `stub fixtures directory declared in manifest but not found: ${fixturesRel}`,
+    );
+  }
+  if (!srcStat.isDirectory()) {
+    throw new RenderError(`stub fixtures path is not a directory: ${fixturesRel}`);
+  }
+
+  const fixturesOut = join(absOut, 'fixtures');
+  const written: string[] = [];
+
+  for await (const file of walkTemplate(srcRoot, {})) {
+    const renderedRel = renderText(file.relativePath, answers).trim();
+    if (renderedRel.length === 0) continue;
+
+    const targetPath = safeJoin(fixturesOut, renderedRel);
+    const data = await readFile(file.absolutePath);
+
+    await mkdir(dirname(targetPath), { recursive: true });
+
+    if (looksBinary(data)) {
+      await writeFile(targetPath, data);
+    } else {
+      await writeFile(targetPath, renderText(data.toString('utf8'), answers), 'utf8');
+    }
+
+    written.push(join('fixtures', renderedRel));
+  }
+
+  return written;
 }

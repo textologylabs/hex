@@ -950,3 +950,55 @@ stub:
     expect(compose.match(/wiremock:/g) ?? []).toHaveLength(1);
   });
 });
+
+describe('renderRecipe — stub fixtures per child (M8.4)', () => {
+  async function buildFixtureRecipe(stub: boolean): Promise<string> {
+    const recipeRoot = join(work, 'recipe');
+    const dbRoot = join(work, 'children', 'db');
+    await writeManifest(
+      recipeRoot,
+      `type: recipe
+name: demo
+version: 0.1.0
+composes:
+  db:
+    component: file:../children/db
+${stub ? '    stub: true\n' : ''}`,
+    );
+    await writeManifest(
+      dbRoot,
+      `type: component
+name: db-postgres
+version: 2.0.0
+kind: db
+stub:
+  engine: pg-mem
+  fixtures: fixtures
+`,
+    );
+    await writeFileEnsure(join(dbRoot, 'client.ts'), '// db client');
+    await writeFileEnsure(
+      join(dbRoot, 'fixtures', 'seed.sql'),
+      "insert into t values ('{{ env }}');",
+    );
+
+    const resolved = await loadResolved(recipeRoot);
+    const out = join(work, 'out');
+    await renderRecipe(resolved, out, { env: 'dev' });
+    return out;
+  }
+
+  it('emits the stubbed child fixtures into <child>/fixtures/, Nunjucks-rendered', async () => {
+    const out = await buildFixtureRecipe(true);
+    expect(await readFile(join(out, 'db', 'fixtures', 'seed.sql'), 'utf8')).toBe(
+      "insert into t values ('dev');",
+    );
+    expect(await readFile(join(out, 'db', 'client.ts'), 'utf8')).toBe('// db client');
+  });
+
+  it('omits fixtures when the child slot is not stub-enabled', async () => {
+    const out = await buildFixtureRecipe(false);
+    expect(await readFile(join(out, 'db', 'client.ts'), 'utf8')).toBe('// db client');
+    await expect(readFile(join(out, 'db', 'fixtures', 'seed.sql'), 'utf8')).rejects.toThrow();
+  });
+});

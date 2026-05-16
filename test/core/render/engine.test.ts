@@ -485,3 +485,98 @@ hooks:
     expect(sink).toEqual([{ level: 'info', msg: 'node-ts-monorepo@1.2.3' }]);
   });
 });
+
+describe('renderBundle — stub fixtures (M8.4)', () => {
+  const stubManifest = `type: component
+name: db-postgres
+version: 2.0.0
+kind: db
+stub:
+  engine: pg-mem
+  fixtures: fixtures
+`;
+
+  it('renders the fixtures directory into <out>/fixtures/ when stub mode is on', async () => {
+    const root = await buildTemplate({
+      manifest: stubManifest,
+      files: {
+        'src/index.ts': '// {{ name }}',
+        'fixtures/seed.sql': "insert into app values ('{{ name }}');",
+      },
+    });
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    const result = await renderBundle(bundle, out, { name: 'demo' }, { stubEnabled: true });
+
+    expect(await readFile(join(out, 'fixtures', 'seed.sql'), 'utf8')).toBe(
+      "insert into app values ('demo');",
+    );
+    expect(await readFile(join(out, 'src', 'index.ts'), 'utf8')).toBe('// demo');
+    expect(result.written).toContain('fixtures/seed.sql');
+  });
+
+  it('omits the fixtures directory entirely when stub mode is off', async () => {
+    const root = await buildTemplate({
+      manifest: stubManifest,
+      files: {
+        'src/index.ts': '// {{ name }}',
+        'fixtures/seed.sql': 'noop',
+      },
+    });
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    const result = await renderBundle(bundle, out, { name: 'demo' });
+
+    expect(result.written).toEqual(['src/index.ts']);
+    await expect(readFile(join(out, 'fixtures', 'seed.sql'), 'utf8')).rejects.toThrow();
+  });
+
+  it('does not emit the fixtures source dir as plain template files', async () => {
+    // Even with stub off, the walk must skip the declared fixtures dir —
+    // it is never a plain template file.
+    const root = await buildTemplate({
+      manifest: stubManifest,
+      files: { 'fixtures/seed.sql': 'noop', 'keep.txt': 'kept' },
+    });
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    const result = await renderBundle(bundle, out, {});
+    expect(result.written).toEqual(['keep.txt']);
+  });
+
+  it('renders templated fixture filenames through Nunjucks', async () => {
+    const root = await buildTemplate({
+      manifest: stubManifest,
+      files: { 'fixtures/{{ name }}.json': '{ "for": "{{ name }}" }' },
+    });
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    await renderBundle(bundle, out, { name: 'orders' }, { stubEnabled: true });
+    expect(await readFile(join(out, 'fixtures', 'orders.json'), 'utf8')).toBe(
+      '{ "for": "orders" }',
+    );
+  });
+
+  it('throws RenderError when the declared fixtures directory is missing', async () => {
+    const root = await buildTemplate({ manifest: stubManifest, files: { 'src/index.ts': 'x' } });
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    await expect(renderBundle(bundle, out, {}, { stubEnabled: true })).rejects.toThrow(
+      /stub fixtures directory declared in manifest but not found/,
+    );
+  });
+
+  it('does nothing for a component with no stub block', async () => {
+    const root = await buildTemplate({
+      manifest: `type: component
+name: plain
+version: 1.0.0
+`,
+      files: { 'index.ts': 'ok' },
+    });
+    const bundle = await loadFromPath(root);
+    const out = join(work, 'out');
+    const result = await renderBundle(bundle, out, {}, { stubEnabled: true });
+    expect(result.written).toEqual(['index.ts']);
+  });
+});
