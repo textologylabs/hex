@@ -96,7 +96,7 @@ export async function buildLockfile(input: BuildLockfileInput): Promise<Lockfile
     root: artifactOf(bundle),
     children: resolved ? lockChildrenOf(resolved) : [],
     answers,
-    files: await hashRenderedTree(outputDir),
+    files: await hashTree(outputDir),
   };
 }
 
@@ -196,7 +196,7 @@ export async function checkLockfileIntegrity(
   rootDir: string,
   lockfile: Lockfile,
 ): Promise<LockfileIntegrity> {
-  const current = new Map((await hashRenderedTree(rootDir)).map((e) => [e.path, e.sha256]));
+  const current = new Map((await hashTree(rootDir)).map((e) => [e.path, e.sha256]));
   const recorded = new Map(lockfile.files.map((e) => [e.path, e.sha256]));
 
   const modified: string[] = [];
@@ -298,8 +298,12 @@ function sourceSpecFor(bundle: ComponentBundle, ref?: ChildRef): SourceSpec {
   return { kind: 'file', path: bundle.rootPath };
 }
 
-/** Walk the rendered tree and hash every file, sorted by POSIX path. */
-async function hashRenderedTree(outputDir: string): Promise<LockFileEntry[]> {
+/**
+ * Walk a rendered tree and hash every file, sorted by POSIX path —
+ * skipping `.hex/`, `.git/`, and `node_modules/`. Exported so the
+ * upgrade engine can recompute a lockfile's `files` table after a merge.
+ */
+export async function hashTree(outputDir: string): Promise<LockFileEntry[]> {
   const entries: LockFileEntry[] = [];
   await walk(outputDir, outputDir, entries);
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

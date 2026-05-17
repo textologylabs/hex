@@ -11,6 +11,7 @@ import { registerPublish } from './commands/publish.js';
 import { registerSearch } from './commands/search.js';
 import { registerSetup } from './commands/setup.js';
 import { registerSources } from './commands/sources.js';
+import { registerUpgrade } from './commands/upgrade.js';
 import { maybeUpdate } from './update.js';
 
 process.on('exit', () => {
@@ -36,6 +37,7 @@ async function main() {
   registerSearch(program);
   registerSetup(program);
   registerSources(program);
+  registerUpgrade(program);
 
   await program.parseAsync(process.argv);
 }
