@@ -7,6 +7,7 @@ import { registerDoctor } from './commands/doctor.js';
 import { registerLint } from './commands/lint.js';
 import { registerList } from './commands/list.js';
 import { registerNew } from './commands/new.js';
+import { registerPublish } from './commands/publish.js';
 import { registerSearch } from './commands/search.js';
 import { registerSetup } from './commands/setup.js';
 import { registerSources } from './commands/sources.js';
@@ -31,6 +32,7 @@ async function main() {
   registerLint(program);
   registerList(program);
   registerNew(program);
+  registerPublish(program);
   registerSearch(program);
   registerSetup(program);
   registerSources(program);
