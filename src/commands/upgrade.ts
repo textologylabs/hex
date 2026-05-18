@@ -1,9 +1,11 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { isCancel, select } from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
 import { type Lockfile, readLockfileUpward } from '../core/lockfile/index.js';
 import { loadFromPath } from '../core/sources/file-source.js';
+import type { OrphanDecision } from '../core/upgrade/merge.js';
 import { reconstructPristine } from '../core/upgrade/pristine.js';
 import {
   type UpgradeEnvironment,
@@ -33,8 +35,12 @@ export function registerUpgrade(program: Command): void {
     .argument('[template]', 'path to the newer version of the template')
     .option('--continue', 'resume a paused upgrade after resolving conflicts', false)
     .option('--abort', 'discard an in-progress upgrade, rolling the tree back', false)
+    .option('--prompt-on-orphans', 'interactively triage orphaned files (kept by default)', false)
     .action(
-      async (templateArg: string | undefined, opts: { continue: boolean; abort: boolean }) => {
+      async (
+        templateArg: string | undefined,
+        opts: { continue: boolean; abort: boolean; promptOnOrphans: boolean },
+      ) => {
         try {
           if (opts.continue && opts.abort) {
             throw new UpgradeError('pass either --continue or --abort, not both');
@@ -54,7 +60,7 @@ export function registerUpgrade(program: Command): void {
               'provide the path to the newer template, or pass --continue / --abort',
             );
           }
-          await runPlainUpgrade(templateArg);
+          await runPlainUpgrade(templateArg, opts.promptOnOrphans);
         } catch (err) {
           if (err instanceof UpgradeError) {
             console.error(brand.error(`✗ ${err.message}`));
@@ -67,8 +73,24 @@ export function registerUpgrade(program: Command): void {
     );
 }
 
+/**
+ * Interactively triage one orphan — a file the user edited that the
+ * upgrade removed. Used only under `--prompt-on-orphans`; a cancel keeps
+ * the file (the safe default).
+ */
+async function promptOrphan(rel: string): Promise<OrphanDecision> {
+  const choice = await select({
+    message: `Orphaned file — the template removed it, but you edited it: ${rel}`,
+    options: [
+      { value: 'keep', label: 'Keep — leave my edited copy in place' },
+      { value: 'delete', label: 'Delete — remove it' },
+    ],
+  });
+  return isCancel(choice) ? 'keep' : (choice as OrphanDecision);
+}
+
 /** The plain `hex upgrade <new-template>` path. */
-async function runPlainUpgrade(templateArg: string): Promise<void> {
+async function runPlainUpgrade(templateArg: string, promptOnOrphans: boolean): Promise<void> {
   const cwd = process.cwd();
   const loaded = await readLockfileUpward(cwd);
   if (!loaded) {
@@ -101,7 +123,12 @@ async function runPlainUpgrade(templateArg: string): Promise<void> {
       toVersion === to && existsSync(migrationsDir) ? migrationsDir : null,
   };
 
-  const outcome = await runUpgrade({ appRoot: cwd, target: to, environment });
+  const outcome = await runUpgrade({
+    appRoot: cwd,
+    target: to,
+    environment,
+    onOrphan: promptOnOrphans ? promptOrphan : undefined,
+  });
 
   const m = outcome.merge;
   console.log(
@@ -109,6 +136,15 @@ async function runPlainUpgrade(templateArg: string): Promise<void> {
       `(${m.added.length} added, ${m.merged.length} merged, ${m.deleted.length} deleted)`,
     )}`,
   );
+
+  if (outcome.orphans.length > 0) {
+    console.log(
+      brand.warn(
+        `⚠ ${outcome.orphans.length} orphaned file(s) have your edits — kept in place, review and clean up if desired:`,
+      ),
+    );
+    for (const file of outcome.orphans) console.log(`    ${file}`);
+  }
 
   if (outcome.userTreeChanges.length > 0) {
     console.log(

@@ -46,6 +46,12 @@ export const upgradeStateSchema = z.object({
    * migration touched. Empty when no user-tree migration ran.
    */
   user_tree_changes: z.array(z.string()).default([]),
+  /**
+   * Orphaned files (M11.7) found during the merge — carried here so
+   * `hex upgrade --continue` can record them in the lockfile once the
+   * conflicts are resolved. Empty when there are none.
+   */
+  orphans: z.array(z.string()).default([]),
 });
 
 /** A paused upgrade's recorded state, as read back (defaults applied). */

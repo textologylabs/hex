@@ -285,3 +285,49 @@ describe('runUpgrade — user-tree migrations', () => {
     expect(state.user_tree_changes).toEqual(['src/imp.ts']);
   });
 });
+
+describe('runUpgrade — orphan handling', () => {
+  it('keeps an edited file the upgrade removed and records it as an orphan', async () => {
+    const app = await makeApp({ 'a.txt': 'same\n', 'keep.txt': 'my edits\n' });
+    const env = envFrom({
+      '1.0.0': { 'a.txt': 'same\n', 'keep.txt': 'generated\n' },
+      '2.0.0': { 'a.txt': 'same\n' },
+    });
+
+    const outcome = await runUpgrade({ appRoot: app, target: '2.0.0', environment: env });
+
+    expect(outcome.status).toBe('clean');
+    expect(outcome.orphans).toEqual(['keep.txt']);
+    // The user's edited copy is left in place untouched.
+    expect(await readApp(app, 'keep.txt')).toBe('my edits\n');
+
+    // The lockfile records the orphan so doctor / a later upgrade can
+    // tell it apart from template-owned files.
+    const lf = parseYaml(await readFile(join(app, '.hex', 'lockfile.yaml'), 'utf8')) as {
+      orphans?: string[];
+    };
+    expect(lf.orphans).toEqual(['keep.txt']);
+  });
+
+  it('deletes the orphan when the onOrphan callback elects delete', async () => {
+    const app = await makeApp({ 'a.txt': 'same\n', 'keep.txt': 'my edits\n' });
+    const env = envFrom({
+      '1.0.0': { 'a.txt': 'same\n', 'keep.txt': 'generated\n' },
+      '2.0.0': { 'a.txt': 'same\n' },
+    });
+
+    const outcome = await runUpgrade({
+      appRoot: app,
+      target: '2.0.0',
+      environment: env,
+      onOrphan: async () => 'delete',
+    });
+
+    expect(outcome.orphans).toEqual([]);
+    expect(existsSync(join(app, 'keep.txt'))).toBe(false);
+    const lf = parseYaml(await readFile(join(app, '.hex', 'lockfile.yaml'), 'utf8')) as {
+      orphans?: string[];
+    };
+    expect(lf.orphans).toBeUndefined();
+  });
+});

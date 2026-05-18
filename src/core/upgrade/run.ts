@@ -8,7 +8,7 @@ import {
   writeLockfile,
 } from '../lockfile/index.js';
 import { type MigrationStep, walkUpgradeChain } from './chain.js';
-import { type MergeResult, mergeTrees } from './merge.js';
+import { type MergeResult, type OrphanDecision, mergeTrees } from './merge.js';
 import {
   type DiscoveredMigration,
   discoverMigration,
@@ -64,11 +64,24 @@ export type RunUpgradeInput = {
   /** The version to upgrade to. */
   target: string;
   environment: UpgradeEnvironment;
+  /**
+   * Triage callback for an orphan — an edited file the upgrade removed
+   * (M11.7). Absent → keep every orphan, the default. `hex upgrade`
+   * supplies one only under `--prompt-on-orphans`.
+   */
+  onOrphan?: (rel: string) => Promise<OrphanDecision>;
 };
 
 /** The result of an upgrade attempt. */
 export type UpgradeOutcome =
-  | { status: 'clean'; from: string; to: string; merge: MergeResult; userTreeChanges: string[] }
+  | {
+      status: 'clean';
+      from: string;
+      to: string;
+      merge: MergeResult;
+      userTreeChanges: string[];
+      orphans: string[];
+    }
   | {
       status: 'conflict';
       from: string;
@@ -76,6 +89,7 @@ export type UpgradeOutcome =
       merge: MergeResult;
       conflicts: string[];
       userTreeChanges: string[];
+      orphans: string[];
     };
 
 /** A user-tree migration deferred past the chain walk to run against the working copy. */
@@ -133,15 +147,23 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
       pristineNew,
       userTree: root,
       theirsLabel: `hex ${input.target}`,
+      onOrphan: input.onOrphan,
     });
 
     // Escape-hatch migrations run last, against the freshly merged tree.
     const userTreeChanges = await applyUserTreeMigrations(root, deferred, userModified);
 
     if (merge.clean) {
-      await finalizeLockfile(root, loaded.lockfile, input.target);
+      await finalizeLockfile(root, loaded.lockfile, input.target, merge.orphaned);
       await dropSnapshot(root);
-      return { status: 'clean', from, to: input.target, merge, userTreeChanges };
+      return {
+        status: 'clean',
+        from,
+        to: input.target,
+        merge,
+        userTreeChanges,
+        orphans: merge.orphaned,
+      };
     }
 
     await writeUpgradeState(root, {
@@ -150,6 +172,7 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
       to: input.target,
       conflicts: merge.conflicted,
       user_tree_changes: userTreeChanges,
+      orphans: merge.orphaned,
     });
     return {
       status: 'conflict',
@@ -158,6 +181,7 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
       merge,
       conflicts: merge.conflicted,
       userTreeChanges,
+      orphans: merge.orphaned,
     };
   } finally {
     await rm(pristineOld, { recursive: true, force: true });
@@ -194,7 +218,7 @@ export async function continueUpgrade(appRoot: string): Promise<ResumeOutcome> {
     );
   }
 
-  await finalizeLockfile(root, loaded.lockfile, state.to);
+  await finalizeLockfile(root, loaded.lockfile, state.to, state.orphans);
   await clearUpgradeState(root);
   await dropSnapshot(root);
   return { from: state.from, to: state.to };
@@ -288,16 +312,22 @@ function diffSnapshots(before: Map<string, string>, after: Map<string, string>):
   return [...changed].sort();
 }
 
-/** Rewrite the lockfile at `toVersion`, re-hashing the merged tree. */
+/**
+ * Rewrite the lockfile at `toVersion`, re-hashing the merged tree and
+ * recording any orphaned files (M11.7) so `hex doctor` and a later
+ * upgrade can tell template-owned files from kept user orphans.
+ */
 async function finalizeLockfile(
   root: string,
   lockfile: Lockfile,
   toVersion: string,
+  orphans: string[],
 ): Promise<void> {
   const updated: Lockfile = {
     ...lockfile,
     root: { ...lockfile.root, version: toVersion },
     files: await hashTree(root),
+    orphans: orphans.length > 0 ? [...orphans].sort() : undefined,
   };
   await writeLockfile(root, updated);
 }

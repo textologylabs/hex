@@ -75,7 +75,20 @@ export type MergeTreesInput = {
   userTree: string;
   /** Marker label for the incoming side (e.g. `hex 2.0.0`). */
   theirsLabel?: string;
+  /**
+   * Triage callback for an orphan (edited file the template removed).
+   * Absent → keep every orphan, the M11.7 default.
+   */
+  onOrphan?: (rel: string) => Promise<OrphanDecision>;
 };
+
+/**
+ * Decision for an orphan — a file the template removed but the user has
+ * edited. `keep` leaves the user's copy in place (the M11.7 default);
+ * `delete` removes it. `hex upgrade` supplies this only under
+ * `--prompt-on-orphans`; otherwise every orphan is kept.
+ */
+export type OrphanDecision = 'keep' | 'delete';
 
 export type MergeResult = {
   /** True when no file conflicted. */
@@ -84,6 +97,11 @@ export type MergeResult = {
   added: string[];
   /** Files removed from the user tree. */
   deleted: string[];
+  /**
+   * Edited files the template removed, kept in place (M11.7). Not an
+   * error — surfaced so the upgrade can warn and record them.
+   */
+  orphaned: string[];
   /** Files updated by a clean 3-way merge (or a clean take-theirs). */
   merged: string[];
   /** Files written with conflict markers — the user must resolve these. */
@@ -101,7 +119,9 @@ export type MergeResult = {
  * - **template added a file** — write it; if the user already created
  *   one at that path, 3-way merge against an empty base.
  * - **template removed a file** — delete it when the user left it
- *   untouched; keep it (an orphan, refined by M11.7) when they edited it.
+ *   untouched; when they edited it, the file is an *orphan* — kept in
+ *   place by default (M11.7) and surfaced in `result.orphaned`, unless
+ *   an `onOrphan` callback elects to delete it.
  *
  * `.hex/`, `.git/`, and `node_modules/` are never touched. The merge is
  * applied in place; conflicted files carry markers and are listed in the
@@ -119,10 +139,12 @@ export async function mergeTrees(input: MergeTreesInput): Promise<MergeResult> {
     clean: true,
     added: [],
     deleted: [],
+    orphaned: [],
     merged: [],
     conflicted: [],
     unchanged: [],
   };
+  const decideOrphan = input.onOrphan ?? (async () => 'keep' as const);
 
   for (const rel of [...new Set([...oldFiles, ...newFiles])].sort()) {
     const oldContent = oldFiles.has(rel)
@@ -146,7 +168,7 @@ export async function mergeTrees(input: MergeTreesInput): Promise<MergeResult> {
     } else if (newContent !== null) {
       await mergeAddedFile(input.userTree, rel, newContent, userContent, labels, result);
     } else if (oldContent !== null) {
-      await mergeRemovedFile(input.userTree, rel, oldContent, userContent, result);
+      await mergeRemovedFile(input.userTree, rel, oldContent, userContent, decideOrphan, result);
     }
   }
 
@@ -216,15 +238,24 @@ async function mergeRemovedFile(
   rel: string,
   oldContent: string,
   userContent: string | null,
+  decideOrphan: (rel: string) => Promise<OrphanDecision>,
   result: MergeResult,
 ): Promise<void> {
   if (userContent === null) return;
   if (userContent === oldContent) {
+    // User never touched it — remove it with the template.
     await rm(join(userTree, rel), { force: true });
     result.deleted.push(rel);
+    return;
   }
-  // User edited a file the template removed — left in place as an
-  // orphan; M11.7 formalises the warning + opt-in triage.
+  // The user edited a file the template removed — an orphan. Kept in
+  // place by default; an `onOrphan` callback may elect to delete it.
+  if ((await decideOrphan(rel)) === 'delete') {
+    await rm(join(userTree, rel), { force: true });
+    result.deleted.push(rel);
+    return;
+  }
+  result.orphaned.push(rel);
 }
 
 /** Collect every file path under `dir`, relative + POSIX, skipping metadata dirs. */
