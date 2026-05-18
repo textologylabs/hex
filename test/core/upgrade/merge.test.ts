@@ -147,7 +147,24 @@ describe('mergeTrees — conflicts', () => {
 
     const result = await mergeTrees({ pristineOld, pristineNew, userTree });
     expect(result.deleted).toEqual([]);
+    expect(result.orphaned).toEqual(['doomed.txt']);
     expect(existsSync(join(userTree, 'doomed.txt'))).toBe(true);
+  });
+
+  it('deletes an orphan when the onOrphan callback elects to', async () => {
+    const pristineOld = await makeTree('old', { 'doomed.txt': 'generated\n' });
+    const pristineNew = await makeTree('new', {});
+    const userTree = await makeTree('user', { 'doomed.txt': 'I EDITED THIS\n' });
+
+    const result = await mergeTrees({
+      pristineOld,
+      pristineNew,
+      userTree,
+      onOrphan: async () => 'delete',
+    });
+    expect(result.orphaned).toEqual([]);
+    expect(result.deleted).toEqual(['doomed.txt']);
+    expect(existsSync(join(userTree, 'doomed.txt'))).toBe(false);
   });
 
   it('never touches the .hex/ metadata folder', async () => {
@@ -184,6 +201,7 @@ describe('upgrade state file', () => {
       to: '2.0.0',
       conflicts: ['src/index.ts', 'package.json'],
       user_tree_changes: [],
+      orphans: [],
     });
   });
 

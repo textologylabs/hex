@@ -124,4 +124,10 @@ export const lockfileSchema = z.object({
   answers: z.record(z.string(), z.unknown()),
   /** Per-file content hashes of the rendered tree, sorted by `path`. */
   files: z.array(lockFileEntrySchema),
+  /**
+   * Orphaned files (M11.7) — files the user edited that a template
+   * upgrade removed, kept in place rather than deleted. POSIX-style
+   * paths relative to the app root. Omitted when there are none.
+   */
+  orphans: z.array(z.string().min(1)).optional(),
 });
