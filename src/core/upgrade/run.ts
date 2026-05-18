@@ -1,4 +1,5 @@
-import { cp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { cp, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   type Lockfile,
@@ -92,8 +93,8 @@ export type UpgradeOutcome =
       orphans: string[];
     };
 
-/** A user-tree migration deferred past the chain walk to run against the working copy. */
-type DeferredUserTreeMigration = {
+/** A migration discovered during the chain walk, tagged with its hop. */
+type CollectedMigration = {
   found: NonNullable<DiscoveredMigration>;
   from: string;
   to: string;
@@ -129,19 +130,35 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
   const integrity = await checkLockfileIntegrity(root, loaded.lockfile);
   const userModified = new Set(integrity.modified);
 
-  // User-tree migrations (M11.6) bypass the pristine model — the chain
-  // walk collects them here and they run against the working copy below.
-  const deferred: DeferredUserTreeMigration[] = [];
+  // The chain walk only *discovers* migrations — every hop's migration
+  // is collected here, so a multi-version upgrade exercises the whole
+  // chain rather than just the last hop (M11.8). `pristine` migrations
+  // restructure the pristine trees; `userTree` ones are the M11.6
+  // escape hatch and run against the working copy after the merge.
+  const pristine: CollectedMigration[] = [];
+  const userTreeMigrations: CollectedMigration[] = [];
 
   const { pristineOld, pristineNew } = await walkUpgradeChain({
     from,
     to: input.target,
     available: input.environment.availableVersions,
     renderVersion: input.environment.pristineFor,
-    runMigration: (step) => migrateHop(step, input.environment, userModified, deferred),
+    runMigration: (step) => collectHop(step, input.environment, pristine, userTreeMigrations),
   });
 
   try {
+    // Apply the composed migration chain before the merge: renames
+    // realign `pristine_old` *and* the user's tree (so an edited file
+    // follows the template's rename), deletes prune `pristine_new`, and
+    // JS escape-hatch migrations transform `pristine_old`.
+    await applyPristineMigrations({
+      migrations: pristine,
+      pristineOld,
+      pristineNew,
+      userTree: root,
+      userModified,
+    });
+
     const merge = await mergeTrees({
       pristineOld,
       pristineNew,
@@ -151,7 +168,7 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
     });
 
     // Escape-hatch migrations run last, against the freshly merged tree.
-    const userTreeChanges = await applyUserTreeMigrations(root, deferred, userModified);
+    const userTreeChanges = await applyUserTreeMigrations(root, userTreeMigrations, userModified);
 
     if (merge.clean) {
       await finalizeLockfile(root, loaded.lockfile, input.target, merge.orphaned);
@@ -243,30 +260,88 @@ export async function abortUpgrade(appRoot: string): Promise<ResumeOutcome> {
 }
 
 /**
- * Run one hop's migration. A normal migration transforms the hop's
- * pristine tree in place; a user-tree migration (M11.6) is collected
- * into `deferred` instead — it runs against the working copy after the
- * merge, not the pristine tree.
+ * Discover one hop's migration and route it: a user-tree migration
+ * (M11.6) is set aside for the working copy; anything else joins the
+ * pristine chain. Nothing is applied here — `runUpgrade` applies the
+ * collected chain once, in hop order, so every hop is exercised.
  */
-async function migrateHop(
+async function collectHop(
   step: MigrationStep,
   env: UpgradeEnvironment,
-  userModified: Set<string>,
-  deferred: DeferredUserTreeMigration[],
+  pristine: CollectedMigration[],
+  userTree: CollectedMigration[],
 ): Promise<void> {
   if (!env.migrationsDirFor) return;
   const dir = await env.migrationsDirFor(step.to);
   if (!dir) return;
   const found = await discoverMigration(dir, step.from, step.to);
   if (!found) return;
-  if (found.userTree) {
-    deferred.push({ found, from: step.from, to: step.to });
-    return;
+  (found.userTree ? userTree : pristine).push({ found, from: step.from, to: step.to });
+}
+
+/**
+ * Apply the collected pristine migration chain, in hop order:
+ *
+ * - `rename` / `replace` — realign the file in `pristine_old` *and* the
+ *   user's tree, so the merge sees the renamed file at one consistent
+ *   path and an edit the user made carries across the rename.
+ * - `delete` / `delete_if_unmodified` — prune the file from
+ *   `pristine_new`, so the merge treats it as template-removed (M11.7
+ *   then keeps it as an orphan if the user edited it).
+ * - a JS migration — transforms `pristine_old` via the M7 sandbox.
+ */
+async function applyPristineMigrations(input: {
+  migrations: CollectedMigration[];
+  pristineOld: string;
+  pristineNew: string;
+  userTree: string;
+  userModified: Set<string>;
+}): Promise<void> {
+  for (const m of input.migrations) {
+    if (m.found.kind === 'js') {
+      await runDiscoveredMigration(m.found, m.from, m.to, { treeDir: input.pristineOld });
+      continue;
+    }
+    for (const op of m.found.doc.steps) {
+      if ('rename' in op) {
+        await renameInTree(input.pristineOld, op.rename.from, op.rename.to, m, false);
+        await renameInTree(input.userTree, op.rename.from, op.rename.to, m, true);
+      } else if ('replace' in op) {
+        await renameInTree(input.pristineOld, op.replace.from, op.replace.to, m, false);
+        await renameInTree(input.userTree, op.replace.from, op.replace.to, m, true);
+      } else if ('delete' in op) {
+        await rm(join(input.pristineNew, op.delete), { recursive: true, force: true });
+      } else if (!input.userModified.has(op.delete_if_unmodified)) {
+        await rm(join(input.pristineNew, op.delete_if_unmodified), {
+          recursive: true,
+          force: true,
+        });
+      }
+    }
   }
-  await runDiscoveredMigration(found, step.from, step.to, {
-    treeDir: step.toTree,
-    isUserModified: (p) => userModified.has(p),
-  });
+}
+
+/**
+ * Move `fromRel`→`toRel` within `treeDir`. A missing source is an
+ * authoring error in a pristine tree, but expected (and skipped) in the
+ * user's tree — the user may have deleted the file.
+ */
+async function renameInTree(
+  treeDir: string,
+  fromRel: string,
+  toRel: string,
+  m: CollectedMigration,
+  tolerateMissing: boolean,
+): Promise<void> {
+  const fromAbs = join(treeDir, fromRel);
+  if (!existsSync(fromAbs)) {
+    if (tolerateMissing) return;
+    throw new UpgradeError(`migration ${m.from}→${m.to}: rename source not found: ${fromRel}`);
+  }
+  const toAbs = join(treeDir, toRel);
+  await mkdir(dirname(toAbs), { recursive: true });
+  await rm(toAbs, { recursive: true, force: true });
+  await rename(fromAbs, toAbs);
 }
 
 /**
@@ -276,7 +351,7 @@ async function migrateHop(
  */
 async function applyUserTreeMigrations(
   root: string,
-  deferred: DeferredUserTreeMigration[],
+  deferred: CollectedMigration[],
   userModified: Set<string>,
 ): Promise<string[]> {
   if (deferred.length === 0) return [];

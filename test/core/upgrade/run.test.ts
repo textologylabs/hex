@@ -331,3 +331,60 @@ describe('runUpgrade — orphan handling', () => {
     expect(lf.orphans).toBeUndefined();
   });
 });
+
+describe('runUpgrade — pristine migrations', () => {
+  /** A fresh migrations dir holding one named migration file. */
+  async function migrationsWith(name: string, body: string): Promise<string> {
+    const dir = await mkdtemp(join(work, 'migrations-'));
+    await writeFile(join(dir, name), body, 'utf8');
+    return dir;
+  }
+
+  it('carries a user edit across a declarative rename migration', async () => {
+    const app = await makeApp({ 'old.txt': 'top\nkeep1\nkeep2\nmid\nbottom\n' });
+    // The user edits the file the migration is about to rename, at a line
+    // well clear of the line the template changes.
+    await writeFile(join(app, 'old.txt'), 'top\nkeep1\nkeep2\nMINE\nbottom\n', 'utf8');
+
+    const migrations = await migrationsWith(
+      '1.0.0-to-2.0.0.yaml',
+      'steps:\n  - rename:\n      from: old.txt\n      to: new.txt\n',
+    );
+    const env: UpgradeEnvironment = {
+      // The template renders the post-rename name with its own change.
+      ...envFrom({
+        '1.0.0': { 'old.txt': 'top\nkeep1\nkeep2\nmid\nbottom\n' },
+        '2.0.0': { 'new.txt': 'TOP\nkeep1\nkeep2\nmid\nbottom\n' },
+      }),
+      migrationsDirFor: async (to) => (to === '2.0.0' ? migrations : null),
+    };
+
+    const outcome = await runUpgrade({ appRoot: app, target: '2.0.0', environment: env });
+
+    expect(outcome.status).toBe('clean');
+    expect(existsSync(join(app, 'old.txt'))).toBe(false);
+    // The user's edit and the template's change both land in the renamed file.
+    expect(await readApp(app, 'new.txt')).toBe('TOP\nkeep1\nkeep2\nMINE\nbottom\n');
+  });
+
+  it('removes an untouched file via a declarative delete migration', async () => {
+    const app = await makeApp({ 'a.txt': 'a\n', 'gone.txt': 'bye\n' });
+    const migrations = await migrationsWith(
+      '1.0.0-to-2.0.0.yaml',
+      'steps:\n  - delete: gone.txt\n',
+    );
+    const env: UpgradeEnvironment = {
+      ...envFrom({
+        '1.0.0': { 'a.txt': 'a\n', 'gone.txt': 'bye\n' },
+        '2.0.0': { 'a.txt': 'a\n', 'gone.txt': 'bye\n' },
+      }),
+      migrationsDirFor: async (to) => (to === '2.0.0' ? migrations : null),
+    };
+
+    const outcome = await runUpgrade({ appRoot: app, target: '2.0.0', environment: env });
+
+    expect(outcome.status).toBe('clean');
+    expect(outcome.merge.deleted).toEqual(['gone.txt']);
+    expect(existsSync(join(app, 'gone.txt'))).toBe(false);
+  });
+});

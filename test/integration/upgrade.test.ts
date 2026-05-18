@@ -23,10 +23,12 @@ import {
  * M11.1–M11.7 stack.
  *
  * Stages a fixture component template across three versions, renders
- * v1.0.0 into a user app, edits a file, then runs `runUpgrade` to
- * v2.0.0. The chain walker visits both hops (1.0.0→1.1.0→2.0.0), each
- * shipping a real migration; the 3-way merge folds the user's edit
- * together with the template's; the lockfile is rewritten at v2.0.0.
+ * v1.0.0 into a user app, edits files, then runs `runUpgrade` to
+ * v2.0.0. The chain walker visits both hops (1.0.0→1.1.0→2.0.0); the
+ * composed migration chain — a `rename` shipped by v1.1.0, a `delete` +
+ * `replace` shipped by v2.0.0 — realigns the trees so the 3-way merge
+ * carries the user's edits across, even through the rename; the
+ * lockfile is rewritten at v2.0.0.
  */
 
 let work: string;
@@ -82,6 +84,17 @@ export const FOOTER = 'stable';
 `;
 }
 
+/** The guide doc — the template changes the intro line between v1 and v2. */
+function guideDoc(intro: string): string {
+  return `Guide
+=====
+
+${intro}
+
+usage line
+`;
+}
+
 /**
  * Stage the three template versions and render the user app at v1.0.0
  * with its lockfile. Returns the app path and the upgrade environment
@@ -91,7 +104,7 @@ async function setup(): Promise<{ app: string; environment: UpgradeEnvironment }
   const t1 = await writeTemplate('1.0.0', {
     'README.md': '# Demo v1\n',
     'src/app.ts': appSource('1.0.0'),
-    'docs/guide.txt': 'the guide\n',
+    'docs/guide.txt': guideDoc('intro line'),
     'legacy.txt': 'legacy code\n',
     'config/settings.ini': 'mode=basic\n',
   });
@@ -101,7 +114,7 @@ async function setup(): Promise<{ app: string; environment: UpgradeEnvironment }
     {
       'README.md': '# Demo v1.1\n',
       'src/app.ts': appSource('1.1.0'),
-      'docs/guide.txt': 'the guide\n',
+      'docs/guide.txt': guideDoc('intro line'),
       'legacy.txt': 'legacy code\n',
       'config/settings.ini': 'mode=basic\n',
     },
@@ -110,15 +123,17 @@ async function setup(): Promise<{ app: string; environment: UpgradeEnvironment }
         'steps:\n  - rename:\n      from: docs/guide.txt\n      to: docs/handbook.txt\n',
     },
   );
-  // v2.0.0 ships the post-rename name directly + a delete/replace migration.
+  // v2.0.0 renders the post-rename layout directly + ships a delete/replace
+  // migration. The `delete` prunes pristine_new; the `replace` realigns
+  // pristine_old + the user tree onto the new path.
   const t2 = await writeTemplate(
     '2.0.0',
     {
       'README.md': '# Demo v2\n',
       'src/app.ts': appSource('2.0.0'),
-      'docs/handbook.txt': 'the guide\n',
+      'docs/handbook.txt': guideDoc('intro paragraph'),
       'legacy.txt': 'legacy code\n',
-      'config/settings.ini': 'mode=basic\n',
+      'config/settings.conf': 'mode=basic\n',
     },
     {
       '1.1.0-to-2.0.0.yaml':
@@ -156,43 +171,49 @@ async function setup(): Promise<{ app: string; environment: UpgradeEnvironment }
 }
 
 describe('hex upgrade — multi-step chain end to end', () => {
-  it('walks v1.0.0 → v1.1.0 → v2.0.0, merges a user edit, rewrites the lockfile', async () => {
+  it('walks v1.0.0 → v1.1.0 → v2.0.0, carrying edits across the rename', async () => {
     const { app, environment } = await setup();
 
-    // The user edits a file at a line the template never touches.
-    const edited = (await readFile(join(app, 'src/app.ts'), 'utf8')).replace(
+    // The user edits two files at lines the template never touches —
+    // one of them is the file v1.1.0's migration renames.
+    const appTs = (await readFile(join(app, 'src/app.ts'), 'utf8')).replace(
       "return 'hello';",
       "return 'hi there';",
     );
-    await writeFile(join(app, 'src/app.ts'), edited, 'utf8');
+    await writeFile(join(app, 'src/app.ts'), appTs, 'utf8');
+    const guide = (await readFile(join(app, 'docs/guide.txt'), 'utf8')).replace(
+      'usage line',
+      'usage line — my notes',
+    );
+    await writeFile(join(app, 'docs/guide.txt'), guide, 'utf8');
 
     const outcome = await runUpgrade({ appRoot: app, target: '2.0.0', environment });
 
-    // The merge ran clean across the chain.
+    // The merge ran clean across the whole chain.
     expect(outcome.status).toBe('clean');
     expect([outcome.from, outcome.to]).toEqual(['1.0.0', '2.0.0']);
-    expect(outcome.merge.merged.sort()).toEqual(['README.md', 'src/app.ts']);
-    expect(outcome.merge.added.sort()).toEqual(['config/settings.conf', 'docs/handbook.txt']);
-    expect(outcome.merge.deleted.sort()).toEqual([
-      'config/settings.ini',
-      'docs/guide.txt',
-      'legacy.txt',
-    ]);
+    expect(outcome.merge.merged.sort()).toEqual(['README.md', 'docs/handbook.txt', 'src/app.ts']);
+    expect(outcome.merge.deleted).toEqual(['legacy.txt']);
+    expect(outcome.merge.added).toEqual([]);
 
-    // The user's edit survived the template's own change.
-    const merged = await readFile(join(app, 'src/app.ts'), 'utf8');
-    expect(merged).toContain("export const VERSION = '2.0.0';");
-    expect(merged).toContain("return 'hi there';");
+    // The edit to a plain file folded together with the template's change.
+    const mergedApp = await readFile(join(app, 'src/app.ts'), 'utf8');
+    expect(mergedApp).toContain("export const VERSION = '2.0.0';");
+    expect(mergedApp).toContain("return 'hi there';");
+
+    // The edit to the *renamed* file carried across into docs/handbook.txt.
+    const handbook = await readFile(join(app, 'docs/handbook.txt'), 'utf8');
+    expect(handbook).toContain('intro paragraph'); // the template's change
+    expect(handbook).toContain('usage line — my notes'); // the user's edit
+    expect(existsSync(join(app, 'docs/guide.txt'))).toBe(false);
 
     // The template-only file was taken wholesale.
     expect(await readFile(join(app, 'README.md'), 'utf8')).toBe('# Demo v2\n');
 
-    // The rename + delete migrations landed.
-    expect(existsSync(join(app, 'docs/handbook.txt'))).toBe(true);
-    expect(existsSync(join(app, 'docs/guide.txt'))).toBe(false);
+    // The delete + replace migrations landed.
+    expect(existsSync(join(app, 'legacy.txt'))).toBe(false);
     expect(existsSync(join(app, 'config/settings.conf'))).toBe(true);
     expect(existsSync(join(app, 'config/settings.ini'))).toBe(false);
-    expect(existsSync(join(app, 'legacy.txt'))).toBe(false);
 
     // The lockfile reflects the new version + a clean integrity check.
     const lockfileDoc = parseYaml(await readFile(join(app, '.hex', 'lockfile.yaml'), 'utf8')) as {
