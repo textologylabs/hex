@@ -2,7 +2,7 @@
 
 Scaffolding tool that assembles applications from templated components — honeycomb-style. Part of the [Hexology](https://github.com/textologylabs/hex) toolset.
 
-Status: **Phase 1 complete — single-template render pipeline + source discovery (local + git).** Milestones M1–M3 are in. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
+Status: **Phase 1 complete — render pipeline, recipes, marketplace, lockfile, and the upgrade engine.** Milestones M1–M11 are in. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
 
 Install once published: `npm install -g @hexology/hex` and run `hex`.
 
@@ -83,6 +83,15 @@ Or in dev:
 npm run dev -- doctor
 ```
 
+## Upgrading a generated app
+
+When your template ships a new version, `hex upgrade <new-template>`
+pulls the change into your working tree via a 3-way merge — clean
+changes land silently, conflicts come back with git-style markers, and
+your edits survive. See [`docs/upgrade.md`](./docs/upgrade.md) for the
+user-facing workflow, and [`docs/authoring-migrations.md`](./docs/authoring-migrations.md)
+for the format if you maintain a template.
+
 ## Scripts
 
 | Script | What it does |
@@ -98,4 +107,4 @@ npm run dev -- doctor
 
 ## Roadmap
 
-See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder) is shipped through M3; next is Phase 2 — deploy + CI/CD adapters.
+See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder) is shipped through M11 — render pipeline, recipes, hooks, stubbing, marketplace, lockfile, and the upgrade engine. Next is Phase 2 — deploy + CI/CD adapters.
