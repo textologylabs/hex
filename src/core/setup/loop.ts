@@ -1,8 +1,16 @@
-import { type Checklist, type ChecklistTask, markTask } from '../checklist/index.js';
+import {
+  type Checklist,
+  type ChecklistTask,
+  type TaskStatus,
+  markTask,
+} from '../checklist/index.js';
 import type { Prompter } from '../prompts/types.js';
 
 /** Action taken on a single task during the loop. */
 export type SetupAction = 'marked-done' | 'marked-pending' | 'skipped' | 'quit';
+
+/** The change a single toggle applied — handed to `onSave` for a merge-safe persist. */
+export type ChecklistChange = { taskId: string; status: TaskStatus };
 
 export type SetupStep = {
   task: ChecklistTask;
@@ -21,9 +29,12 @@ export type SetupResult = {
 export type SetupOpts = {
   /**
    * Persist callback fired after every status change. The loop saves on
-   * each toggle so a hard quit (Ctrl-C) cannot lose progress.
+   * each toggle so a hard quit (Ctrl-C) cannot lose progress. `change`
+   * identifies the single toggle so a caller can apply it as a
+   * merge-safe update (see `updateChecklist`) rather than overwriting
+   * the whole file and clobbering a concurrent peer's toggles.
    */
-  onSave?: (checklist: Checklist) => Promise<void> | void;
+  onSave?: (checklist: Checklist, change: ChecklistChange) => Promise<void> | void;
 };
 
 const ACTION_MARK_DONE = 'Mark as done';
@@ -82,7 +93,7 @@ export async function runSetupLoop(
     // Toggle — flip the status, persist, record.
     const newStatus = task.status === 'pending' ? 'done' : 'pending';
     checklist = markTask(checklist, task.id, newStatus);
-    if (opts.onSave) await opts.onSave(checklist);
+    if (opts.onSave) await opts.onSave(checklist, { taskId: task.id, status: newStatus });
     steps.push({
       task: { ...task, status: newStatus },
       action: newStatus === 'done' ? 'marked-done' : 'marked-pending',

@@ -1,7 +1,8 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { SetupTask } from '../manifest/types.js';
+import { withFileLock, writeFileAtomic } from '../util/atomic.js';
 import { checklistSchema } from './schema.js';
 
 export type TaskStatus = 'pending' | 'done';
@@ -38,6 +39,8 @@ export class ChecklistError extends Error {
 export const CHECKLIST_DIRNAME = '.hex';
 export const CHECKLIST_FILENAME = 'checklist.yaml';
 export const CHECKLIST_REL_PATH = `${CHECKLIST_DIRNAME}/${CHECKLIST_FILENAME}`;
+/** Sentinel for serialising concurrent updates to the checklist. */
+const CHECKLIST_LOCK_FILENAME = '.checklist.lock';
 
 /**
  * Build a fresh checklist from a manifest's `setup.tasks`. All tasks
@@ -58,7 +61,10 @@ export function checklistFromTasks(tasks: SetupTask[]): Checklist {
 /**
  * Write the checklist to `<rootDir>/.hex/checklist.yaml`, creating the
  * `.hex/` directory if needed. Validates against the schema before
- * writing so a buggy caller cannot persist a malformed file.
+ * writing so a buggy caller cannot persist a malformed file; the write
+ * itself is atomic, so a concurrent reader never sees a half-written
+ * file. For *partial* updates that must not lose a peer process's
+ * concurrent toggles, use `updateChecklist` instead.
  */
 export async function writeChecklist(rootDir: string, checklist: Checklist): Promise<string> {
   const parsed = checklistSchema.safeParse(checklist);
@@ -72,8 +78,45 @@ export async function writeChecklist(rootDir: string, checklist: Checklist): Pro
   const dir = join(rootDir, CHECKLIST_DIRNAME);
   await mkdir(dir, { recursive: true });
   const path = join(dir, CHECKLIST_FILENAME);
-  await writeFile(path, stringifyYaml(parsed.data), 'utf8');
+  await writeFileAtomic(path, stringifyYaml(parsed.data));
   return path;
+}
+
+/**
+ * Atomically apply `mutate` to the on-disk checklist: serialise via an
+ * exclusive lock, re-read the latest state inside the lock, mutate,
+ * write back atomically. This is what the `hex setup` loop's per-toggle
+ * save uses, so two `hex setup` invocations against the same generated
+ * app can't lose each other's toggles to last-writer-wins.
+ *
+ * Throws `ChecklistError` if no checklist exists yet — call
+ * `writeChecklist` for the initial creation.
+ */
+export async function updateChecklist(
+  rootDir: string,
+  mutate: (current: Checklist) => Checklist,
+): Promise<Checklist> {
+  const dir = join(rootDir, CHECKLIST_DIRNAME);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, CHECKLIST_FILENAME);
+  const lockPath = join(dir, CHECKLIST_LOCK_FILENAME);
+
+  return withFileLock(lockPath, async () => {
+    if (!(await fileExists(path))) {
+      throw new ChecklistError('cannot update — checklist does not exist', path);
+    }
+    const current = await readChecklistFile(path);
+    const next = mutate(current);
+    const parsed = checklistSchema.safeParse(next);
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((i) => `  ${i.path.join('.') || '<root>'}: ${i.message}`)
+        .join('\n');
+      throw new ChecklistError(`refusing to write malformed checklist:\n${issues}`, path);
+    }
+    await writeFileAtomic(path, stringifyYaml(parsed.data));
+    return parsed.data;
+  });
 }
 
 /**
