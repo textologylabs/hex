@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  type Checklist,
   ChecklistError,
   checklistFromTasks,
   countByStatus,
   markTask,
   readChecklistUpward,
+  updateChecklist,
   writeChecklist,
 } from '../../../src/core/checklist/index.js';
 
@@ -122,6 +124,56 @@ describe('markTask', () => {
   it('throws on unknown ids', () => {
     const checklist = checklistFromTasks([{ id: 'a', title: 'A' }]);
     expect(() => markTask(checklist, 'ghost', 'done')).toThrow(ChecklistError);
+  });
+});
+
+describe('updateChecklist', () => {
+  it('applies the mutator to the on-disk state and returns the new checklist', async () => {
+    await writeChecklist(
+      work,
+      checklistFromTasks([
+        { id: 'a', title: 'A' },
+        { id: 'b', title: 'B' },
+      ]),
+    );
+
+    const result = await updateChecklist(work, (current) => markTask(current, 'a', 'done'));
+    expect(result.tasks.find((t) => t.id === 'a')?.status).toBe('done');
+
+    const reloaded = await readChecklistUpward(work);
+    expect(reloaded?.checklist.tasks.find((t) => t.id === 'a')?.status).toBe('done');
+  });
+
+  it('throws when no checklist exists yet', async () => {
+    await expect(updateChecklist(work, (c) => c)).rejects.toThrow(ChecklistError);
+  });
+
+  it('rejects a mutator that produces a malformed checklist', async () => {
+    await writeChecklist(work, checklistFromTasks([{ id: 'a', title: 'A' }]));
+    // Empty `id` violates the schema — the mutator's return is the bad shape.
+    const badMutator = () =>
+      ({ tasks: [{ id: '', title: 'bad', status: 'pending' as const }] }) as unknown as Checklist;
+    await expect(updateChecklist(work, badMutator)).rejects.toThrow(ChecklistError);
+  });
+
+  it('serialises concurrent toggles — every toggle lands, none is lost', async () => {
+    // Five tasks, five workers each toggling a distinct task. Without
+    // locking the read-modify-write cycle this is exactly the
+    // last-writer-wins race the ticket calls out — each worker would
+    // overwrite the others. With `updateChecklist` every toggle ends up
+    // on disk.
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    await writeChecklist(
+      work,
+      checklistFromTasks(ids.map((id) => ({ id, title: id.toUpperCase() }))),
+    );
+
+    await Promise.all(
+      ids.map((id) => updateChecklist(work, (current) => markTask(current, id, 'done'))),
+    );
+
+    const final = await readChecklistUpward(work);
+    expect(final?.checklist.tasks.every((t) => t.status === 'done')).toBe(true);
   });
 });
 

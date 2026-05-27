@@ -1,11 +1,16 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
 import {
+  CHECKLIST_REL_PATH,
   type Checklist,
   type LoadedChecklist,
   countByStatus,
+  markTask,
   readChecklistUpward,
+  updateChecklist,
   writeChecklist,
 } from '../core/checklist/index.js';
 import { createClackPrompter } from '../core/prompts/clack-prompter.js';
@@ -34,9 +39,19 @@ export async function runSetupSession(
   session: SetupSession,
   prompter: Prompter,
 ): Promise<SetupResult> {
+  const checklistPath = join(session.rootDir, CHECKLIST_REL_PATH);
   return runSetupLoop(session.checklist, prompter, {
-    onSave: async (c) => {
-      await writeChecklist(session.rootDir, c);
+    onSave: async (current, change) => {
+      // First toggle in a session whose checklist hasn't reached disk
+      // yet (the prod flow has `hex new` create it, but tests can
+      // skip that step) — write our in-memory state through.
+      // Subsequent toggles apply just the diff under a lock so a
+      // concurrent peer's toggles aren't clobbered by last-writer-wins.
+      if (!existsSync(checklistPath)) {
+        await writeChecklist(session.rootDir, current);
+        return;
+      }
+      await updateChecklist(session.rootDir, (c) => markTask(c, change.taskId, change.status));
     },
   });
 }
