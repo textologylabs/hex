@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { withFileLock, writeFileAtomic } from '../util/atomic.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +37,7 @@ export type ResolveOpts = {
 
 const META_FILENAME = '.hex-meta.json';
 const REPO_SUBDIR = 'repo';
+const LOCK_FILENAME = '.lock';
 
 export function getDefaultCacheDir(): string {
   const env = process.env.HEX_CACHE_DIR;
@@ -176,7 +178,7 @@ export async function readGitMeta(
 }
 
 async function writeMeta(metaPath: string, meta: Meta): Promise<void> {
-  await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+  await writeFileAtomic(metaPath, JSON.stringify(meta, null, 2));
 }
 
 /**
@@ -198,10 +200,10 @@ export async function resolveGitSource(
   const repoDir = join(cacheRoot, REPO_SUBDIR);
   const metaPath = join(cacheRoot, META_FILENAME);
 
+  // Fast path — a warm cache needs no lock (reads are safe because
+  // `writeMeta` is atomic). The slow path below re-checks under the lock.
   const cached = await readMeta(metaPath);
-  const repoExists = await pathExists(join(repoDir, '.git'));
-
-  if (cached && repoExists && !opts.refresh) {
+  if (cached && (await pathExists(join(repoDir, '.git'))) && !opts.refresh) {
     return {
       localPath: repoDir,
       url: cached.url,
@@ -212,31 +214,46 @@ export async function resolveGitSource(
   }
 
   await mkdir(cacheRoot, { recursive: true });
+  return withFileLock(join(cacheRoot, LOCK_FILENAME), async () => {
+    // A peer process may have completed the clone/refetch while we
+    // were waiting on the lock — re-check inside the critical section.
+    const fresh = await readMeta(metaPath);
+    const repoExists = await pathExists(join(repoDir, '.git'));
+    if (fresh && repoExists && !opts.refresh) {
+      return {
+        localPath: repoDir,
+        url: fresh.url,
+        ref: fresh.ref,
+        sha: fresh.sha,
+        fetchedAt: fresh.fetchedAt,
+      };
+    }
 
-  let sha: string;
-  if (repoExists) {
-    sha = await refetch(entry.url, entry.ref, repoDir);
-  } else {
-    // Cold cache or partial state — start fresh.
-    if (await pathExists(repoDir)) await rm(repoDir, { recursive: true, force: true });
-    sha = await clone(entry.url, entry.ref, repoDir);
-  }
+    let sha: string;
+    if (repoExists) {
+      sha = await refetch(entry.url, entry.ref, repoDir);
+    } else {
+      // Cold cache or partial state — start fresh.
+      if (await pathExists(repoDir)) await rm(repoDir, { recursive: true, force: true });
+      sha = await clone(entry.url, entry.ref, repoDir);
+    }
 
-  const meta: Meta = {
-    url: entry.url,
-    ref: entry.ref ?? 'HEAD',
-    sha,
-    fetchedAt: new Date().toISOString(),
-  };
-  await writeMeta(metaPath, meta);
+    const meta: Meta = {
+      url: entry.url,
+      ref: entry.ref ?? 'HEAD',
+      sha,
+      fetchedAt: new Date().toISOString(),
+    };
+    await writeMeta(metaPath, meta);
 
-  return {
-    localPath: repoDir,
-    url: meta.url,
-    ref: meta.ref,
-    sha: meta.sha,
-    fetchedAt: meta.fetchedAt,
-  };
+    return {
+      localPath: repoDir,
+      url: meta.url,
+      ref: meta.ref,
+      sha: meta.sha,
+      fetchedAt: meta.fetchedAt,
+    };
+  });
 }
 
 /**
@@ -329,12 +346,17 @@ export async function checkUpstreamDrift(
     };
   }
 
-  const updated: Meta = {
-    ...meta,
-    lastCheckedAt: now.toISOString(),
-    lastKnownUpstreamSha: upstreamSha,
-  };
-  await writeMeta(metaPath, updated);
+  // Persist the upstream-check result under the lock so a concurrent
+  // `resolveGitSource` cannot stomp the freshly-written fields.
+  await withFileLock(join(cacheRoot, LOCK_FILENAME), async () => {
+    const latest = (await readMeta(metaPath)) ?? meta;
+    const updated: Meta = {
+      ...latest,
+      lastCheckedAt: now.toISOString(),
+      lastKnownUpstreamSha: upstreamSha,
+    };
+    await writeMeta(metaPath, updated);
+  });
 
   return {
     cachedSha,

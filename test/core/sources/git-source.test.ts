@@ -323,3 +323,65 @@ describe('cacheDirFor', () => {
     expect(dir).toContain('feat_foo');
   });
 });
+
+describe('resolveGitSource — concurrency', () => {
+  it('serialises concurrent cold resolves against the same (url, ref)', async () => {
+    // Five workers race against an empty cache. They must all converge
+    // on the same sha, the meta file must be valid JSON, and no
+    // .lock file may be left behind.
+    const upstream = await makeUpstreamRepo();
+    const cacheDir = join(work, 'cache');
+    const entry = { url: fileUrl(upstream) };
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => resolveGitSource(entry, { cacheDir })),
+    );
+
+    const sha = results[0]?.sha ?? '';
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    for (const r of results) {
+      expect(r.sha).toBe(sha);
+      expect(r.localPath).toBe(results[0]?.localPath);
+    }
+
+    // The meta file is valid JSON and matches what the resolvers returned.
+    const cacheRoot = cacheDirFor(entry.url, undefined, cacheDir);
+    const meta = JSON.parse(await readFile(join(cacheRoot, '.hex-meta.json'), 'utf8')) as {
+      sha: string;
+    };
+    expect(meta.sha).toBe(sha);
+
+    // The lock was released on every code path.
+    const fs = await import('node:fs/promises');
+    const entries = await fs.readdir(cacheRoot);
+    expect(entries).not.toContain('.lock');
+  });
+
+  it('serialises concurrent refreshes against a warm cache', async () => {
+    const upstream = await makeUpstreamRepo();
+    const cacheDir = join(work, 'cache');
+    const entry = { url: fileUrl(upstream) };
+
+    // Warm the cache once.
+    await resolveGitSource(entry, { cacheDir });
+
+    // Advance upstream so a refresh has work to do.
+    await writeFile(join(upstream, 'README.md'), 'updated\n', 'utf8');
+    await git(upstream, 'add', '.');
+    await git(upstream, 'commit', '-q', '-m', 'second');
+    const newHead = await git(upstream, 'rev-parse', 'HEAD');
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => resolveGitSource(entry, { cacheDir, refresh: true })),
+    );
+
+    for (const r of results) {
+      expect(r.sha).toBe(newHead);
+    }
+    const cacheRoot = cacheDirFor(entry.url, undefined, cacheDir);
+    const meta = JSON.parse(await readFile(join(cacheRoot, '.hex-meta.json'), 'utf8')) as {
+      sha: string;
+    };
+    expect(meta.sha).toBe(newHead);
+  });
+});
