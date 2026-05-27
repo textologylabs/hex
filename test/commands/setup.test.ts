@@ -2,8 +2,16 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runSetupSession } from '../../src/commands/setup.js';
-import { checklistFromTasks, readChecklistUpward } from '../../src/core/checklist/index.js';
+import {
+  type SetupCommandEffects,
+  runSetupCommand,
+  runSetupSession,
+} from '../../src/commands/setup.js';
+import {
+  checklistFromTasks,
+  readChecklistUpward,
+  writeChecklist,
+} from '../../src/core/checklist/index.js';
 import type {
   ConfirmOpts,
   MultiSelectOpts,
@@ -96,5 +104,80 @@ describe('runSetupSession', () => {
     // No .hex/ directory was created — onSave never fired.
     const loaded = await readChecklistUpward(work);
     expect(loaded).toBeNull();
+  });
+});
+
+describe('runSetupCommand', () => {
+  /** Build a SetupCommandEffects whose side effects are captured. */
+  function captureEffects(prompter?: Prompter): {
+    effects: SetupCommandEffects;
+    stderr: string[];
+    exitCodes: number[];
+    introCount: number;
+    outroCount: number;
+  } {
+    const stderr: string[] = [];
+    const exitCodes: number[] = [];
+    let introCount = 0;
+    let outroCount = 0;
+    const effects: SetupCommandEffects = {
+      stderr: {
+        write(s: string) {
+          stderr.push(s);
+        },
+      },
+      setExitCode: (code) => exitCodes.push(code),
+      printIntro: () => {
+        introCount++;
+      },
+      printOutro: () => {
+        outroCount++;
+      },
+      prompterFactory: () => {
+        if (!prompter) throw new Error('prompterFactory should not be called');
+        return prompter;
+      },
+    };
+    return {
+      effects,
+      stderr,
+      exitCodes,
+      get introCount() {
+        return introCount;
+      },
+      get outroCount() {
+        return outroCount;
+      },
+    };
+  }
+
+  it('errors with exit code 1 when no checklist is found in cwd or any ancestor', async () => {
+    const cap = captureEffects();
+    await runSetupCommand(work, cap.effects);
+
+    expect(cap.exitCodes).toEqual([1]);
+    expect(cap.stderr.join('')).toMatch(/no \.hex\/checklist\.yaml/i);
+    expect(cap.introCount).toBe(0);
+    expect(cap.outroCount).toBe(0);
+  });
+
+  it('drives the setup session when a checklist exists', async () => {
+    await writeChecklist(
+      work,
+      checklistFromTasks([
+        { id: 'a', title: 'A' },
+        { id: 'b', title: 'B' },
+      ]),
+    );
+    const cap = captureEffects(scriptedPrompter(['Mark as done', 'Mark as done']));
+    await runSetupCommand(work, cap.effects);
+
+    expect(cap.exitCodes).toEqual([]);
+    expect(cap.stderr).toEqual([]);
+    expect(cap.introCount).toBe(1);
+    expect(cap.outroCount).toBe(1);
+
+    const loaded = await readChecklistUpward(work);
+    expect(loaded?.checklist.tasks.every((t) => t.status === 'done')).toBe(true);
   });
 });

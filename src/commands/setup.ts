@@ -61,28 +61,57 @@ export function registerSetup(program: Command): void {
     .command('setup')
     .description('walk through outstanding setup tasks for the current project')
     .action(async () => {
-      await runSetupCommand();
+      await runSetupCommand(process.cwd(), defaultSetupCommandEffects);
     });
 }
 
-async function runSetupCommand(): Promise<void> {
-  const loaded = await readChecklistUpward(process.cwd());
+/**
+ * Side effects the `hex setup` command performs, abstracted so the
+ * action callback's branch logic is testable end-to-end without
+ * touching the real process or the real clack prompter.
+ */
+export type SetupCommandEffects = {
+  stderr: { write(s: string): void };
+  setExitCode: (code: number) => void;
+  printIntro: (loaded: LoadedChecklist) => void;
+  printOutro: (result: SetupResult) => void;
+  prompterFactory: () => Prompter;
+};
+
+/** Production effects — the action callback wires this. */
+export const defaultSetupCommandEffects: SetupCommandEffects = {
+  stderr: process.stderr,
+  setExitCode: (code) => {
+    process.exitCode = code;
+  },
+  printIntro: printSetupIntro,
+  printOutro: printSetupOutro,
+  prompterFactory: createClackPrompter,
+};
+
+/**
+ * The `hex setup` action's full flow with side effects injected. Two
+ * branches: a missing checklist exits with code 1 and a user-facing
+ * stderr message; otherwise the interactive setup session runs.
+ */
+export async function runSetupCommand(cwd: string, effects: SetupCommandEffects): Promise<void> {
+  const loaded = await readChecklistUpward(cwd);
   if (!loaded) {
-    process.stderr.write(
+    effects.stderr.write(
       `${brand.error('No .hex/checklist.yaml found in the current directory or any ancestor.')}\n`,
     );
-    process.exitCode = 1;
+    effects.setExitCode(1);
     return;
   }
 
-  printSetupIntro(loaded);
+  effects.printIntro(loaded);
 
   const result = await runSetupSession(
     { rootDir: loaded.rootDir, checklist: loaded.checklist },
-    createClackPrompter(),
+    effects.prompterFactory(),
   );
 
-  printSetupOutro(result);
+  effects.printOutro(result);
 }
 
 export function printSetupIntro(loaded: LoadedChecklist): void {

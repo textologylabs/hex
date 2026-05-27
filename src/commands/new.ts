@@ -4,7 +4,7 @@ import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
 import { splash } from '../brand/splash.js';
-import { checklistFromTasks, writeChecklist } from '../core/checklist/index.js';
+import { type Checklist, checklistFromTasks, writeChecklist } from '../core/checklist/index.js';
 import { loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
 import { type TemplateEntry, discoverTemplates } from '../core/discovery/index.js';
@@ -218,35 +218,72 @@ export function registerNew(program: Command): void {
           clack.log.info(`hooks: ${result.renamed} renamed, ${result.deleted} deleted`);
         }
 
-        if (result.tasks.length === 0) {
+        const plan = planPostRender(result, {
+          isTTY: Boolean(process.stdout.isTTY),
+          setup: opts.setup,
+        });
+
+        if (plan.kind === 'no-tasks') {
           clack.outro(brand.done(`done — ${outputDir}`));
           return;
         }
 
         // Write the initial checklist before doing anything else, so a hard
         // exit at this point still leaves the project in a recoverable state.
-        const initial = checklistFromTasks(result.tasks);
-        await writeChecklist(outputDir, initial);
+        await writeChecklist(outputDir, plan.initial);
 
-        if (result.setupMessage) {
-          clack.note(result.setupMessage, 'Post-scaffold setup');
+        if (plan.setupMessage) {
+          clack.note(plan.setupMessage, 'Post-scaffold setup');
         }
 
-        const interactive = process.stdout.isTTY && opts.setup;
-        if (!interactive) {
+        if (!plan.interactive) {
           clack.outro(
-            `${result.tasks.length} setup tasks pending — run ${brand.bold('hex setup')} from ${outputDir}`,
+            `${plan.pendingCount} setup tasks pending — run ${brand.bold('hex setup')} from ${outputDir}`,
           );
           return;
         }
 
         const setupResult = await runSetupSession(
-          { rootDir: outputDir, checklist: initial },
+          { rootDir: outputDir, checklist: plan.initial },
           createClackPrompter(),
         );
         printSetupOutro(setupResult);
       },
     );
+}
+
+/**
+ * The post-render decision: whether to run the interactive setup loop,
+ * defer it with a follow-up hint, or do nothing because the template
+ * shipped no setup tasks. Extracted as a pure function so the action
+ * callback's branch logic is unit-testable without touching `clack`,
+ * the TTY, or `process.stdout`.
+ */
+export type PostRenderPlan =
+  | { kind: 'no-tasks' }
+  | {
+      kind: 'has-tasks';
+      /** True iff we should drive the interactive setup loop. */
+      interactive: boolean;
+      /** The checklist to write at the end of the render. */
+      initial: Checklist;
+      /** Pending count, for the deferred-setup outro message. */
+      pendingCount: number;
+      setupMessage?: string;
+    };
+
+export function planPostRender(
+  result: NewRenderSummary,
+  env: { isTTY: boolean; setup: boolean },
+): PostRenderPlan {
+  if (result.tasks.length === 0) return { kind: 'no-tasks' };
+  return {
+    kind: 'has-tasks',
+    interactive: env.isTTY && env.setup,
+    initial: checklistFromTasks(result.tasks),
+    pendingCount: result.tasks.length,
+    ...(result.setupMessage !== undefined ? { setupMessage: result.setupMessage } : {}),
+  };
 }
 
 function looksLikePath(arg: string): boolean {

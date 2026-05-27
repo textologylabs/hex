@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
-import { collectNewAnswers, executeNewRender } from '../../src/commands/new.js';
+import {
+  type NewRenderSummary,
+  collectNewAnswers,
+  executeNewRender,
+  planPostRender,
+} from '../../src/commands/new.js';
 import { checklistFromTasks, writeChecklist } from '../../src/core/checklist/index.js';
 import { lockfileSchema } from '../../src/core/lockfile/index.js';
 import type { Prompter } from '../../src/core/prompts/types.js';
@@ -456,5 +461,65 @@ version: 0.3.0
       'platform/api/server.ts',
       'platform/infra.ts',
     ]);
+  });
+});
+
+describe('planPostRender', () => {
+  function summary(over: Partial<NewRenderSummary> = {}): NewRenderSummary {
+    return {
+      written: 1,
+      renamed: 0,
+      deleted: 0,
+      childCount: 0,
+      tasks: [],
+      ...over,
+    };
+  }
+
+  it('returns no-tasks when the template shipped none', () => {
+    expect(planPostRender(summary(), { isTTY: true, setup: true })).toEqual({ kind: 'no-tasks' });
+  });
+
+  it('returns has-tasks/interactive when stdout is a TTY and --setup is on', () => {
+    const plan = planPostRender(summary({ tasks: [{ id: 'a', title: 'A' }] }), {
+      isTTY: true,
+      setup: true,
+    });
+    expect(plan.kind).toBe('has-tasks');
+    if (plan.kind === 'has-tasks') {
+      expect(plan.interactive).toBe(true);
+      expect(plan.pendingCount).toBe(1);
+      expect(plan.initial.tasks).toHaveLength(1);
+    }
+  });
+
+  it('returns has-tasks/non-interactive when --setup is off, even on a TTY', () => {
+    const plan = planPostRender(summary({ tasks: [{ id: 'a', title: 'A' }] }), {
+      isTTY: true,
+      setup: false,
+    });
+    expect(plan.kind === 'has-tasks' && plan.interactive).toBe(false);
+  });
+
+  it('returns has-tasks/non-interactive when not on a TTY, even with --setup on', () => {
+    const plan = planPostRender(summary({ tasks: [{ id: 'a', title: 'A' }] }), {
+      isTTY: false,
+      setup: true,
+    });
+    expect(plan.kind === 'has-tasks' && plan.interactive).toBe(false);
+  });
+
+  it('propagates setupMessage when present, omits it when absent', () => {
+    const withMsg = planPostRender(
+      summary({ tasks: [{ id: 'a', title: 'A' }], setupMessage: 'hello' }),
+      { isTTY: true, setup: true },
+    );
+    expect(withMsg.kind === 'has-tasks' && withMsg.setupMessage).toBe('hello');
+
+    const without = planPostRender(summary({ tasks: [{ id: 'a', title: 'A' }] }), {
+      isTTY: true,
+      setup: true,
+    });
+    expect(without.kind === 'has-tasks' && without.setupMessage).toBeUndefined();
   });
 });
