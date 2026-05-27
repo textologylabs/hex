@@ -105,6 +105,11 @@ for the format if you maintain a template.
 | `npm run format` | Biome format (write). |
 | `npm run check` | Typecheck + lint + test. |
 
+Three surfaces don't lend themselves to cheap CI — real TTY prompts,
+non-`file://` git auth, and Windows shell-to-git — and have to be
+walked by hand before each release. [`docs/testing.md`](./docs/testing.md)
+is the matrix.
+
 ## Roadmap
 
 See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder) is shipped through M11 — render pipeline, recipes, hooks, stubbing, marketplace, lockfile, and the upgrade engine. Next is Phase 2 — deploy + CI/CD adapters.
