@@ -153,3 +153,40 @@ describe('lockfileSchema — tampered hashes', () => {
     expect(lockfileSchema.safeParse(lock).success).toBe(true);
   });
 });
+
+describe('lockfileSchema — deploy + cicd (M12.2)', () => {
+  it('accepts an optional deploy stanza with adapter-specific passthrough keys', () => {
+    const lock = validRecipeLockfile({
+      deploy: { adapter: 'vercel', prod: true, project: 'foo' },
+    });
+    const parsed = lockfileSchema.safeParse(lock);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.deploy).toEqual({ adapter: 'vercel', prod: true, project: 'foo' });
+    }
+  });
+
+  it('accepts an optional cicd stanza with provider-specific passthrough keys', () => {
+    const lock = validRecipeLockfile({
+      cicd: { provider: 'github-actions', 'node-version': '20' },
+    });
+    const parsed = lockfileSchema.safeParse(lock);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.cicd).toEqual({
+        provider: 'github-actions',
+        'node-version': '20',
+      });
+    }
+  });
+
+  it('omitting both fields remains valid (back-compat)', () => {
+    const lock = validRecipeLockfile();
+    expect(lockfileSchema.safeParse(lock).success).toBe(true);
+  });
+
+  it('rejects a non-kebab adapter name', () => {
+    const lock = validRecipeLockfile({ deploy: { adapter: 'Vercel_Pro' } });
+    expect(lockfileSchema.safeParse(lock).success).toBe(false);
+  });
+});
