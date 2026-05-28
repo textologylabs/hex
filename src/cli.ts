@@ -13,6 +13,7 @@ import { registerSearch } from './commands/search.js';
 import { registerSetup } from './commands/setup.js';
 import { registerSources } from './commands/sources.js';
 import { registerUpgrade } from './commands/upgrade.js';
+import { bootstrapBuiltinAdapters } from './core/deploy/index.js';
 import { maybeUpdate } from './update.js';
 
 process.on('exit', () => {
@@ -20,6 +21,7 @@ process.on('exit', () => {
 });
 
 async function main() {
+  bootstrapBuiltinAdapters();
   await maybeUpdate();
 
   const program = new Command();
