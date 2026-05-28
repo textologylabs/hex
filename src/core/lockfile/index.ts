@@ -5,6 +5,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { z } from 'zod';
 import { VERSION } from '../../brand/splash.js';
 import type { ChildRef } from '../manifest/types.js';
+import type { Cicd, Deploy } from '../manifest/types.js';
 import type { Answers } from '../prompts/types.js';
 import type { ResolvedRecipe } from '../recipe/resolve.js';
 import type { ComponentBundle } from '../sources/file-source.js';
@@ -89,6 +90,9 @@ export type BuildLockfileInput = {
 export async function buildLockfile(input: BuildLockfileInput): Promise<Lockfile> {
   const { bundle, resolved, answers, outputDir } = input;
 
+  const deploy: Deploy | undefined = bundle.manifest.deploy;
+  const cicd: Cicd | undefined = bundle.manifest.cicd;
+
   return {
     schema_version: LOCKFILE_SCHEMA_VERSION,
     hex_version: VERSION,
@@ -97,6 +101,8 @@ export async function buildLockfile(input: BuildLockfileInput): Promise<Lockfile
     children: resolved ? lockChildrenOf(resolved) : [],
     answers,
     files: await hashTree(outputDir),
+    ...(deploy ? { deploy } : {}),
+    ...(cicd ? { cicd } : {}),
   };
 }
 

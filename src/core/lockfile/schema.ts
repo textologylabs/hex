@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { KEBAB_KEY_RE } from '../manifest/schema.js';
+import { KEBAB_KEY_RE, cicdSchema, deploySchema } from '../manifest/schema.js';
 
 /**
  * The lockfile schema (M10.1) — the zod shape of `.hex/lockfile.yaml`.
@@ -130,4 +130,15 @@ export const lockfileSchema = z.object({
    * paths relative to the app root. Omitted when there are none.
    */
   orphans: z.array(z.string().min(1)).optional(),
+  /**
+   * Deploy stanza captured from the source manifest at render time
+   * (M12.2). Pinned here so `hex deploy` has a single source of truth
+   * regardless of whether the source bundle is still reachable.
+   */
+  deploy: deploySchema.optional(),
+  /**
+   * CI/CD stanza captured from the source manifest at render time
+   * (M12.2). Same pinning rationale as `deploy`.
+   */
+  cicd: cicdSchema.optional(),
 });

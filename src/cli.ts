@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { brand } from './brand/colors.js';
 import { VERSION, splash } from './brand/splash.js';
 import { registerBrowse } from './commands/browse.js';
+import { registerDeploy } from './commands/deploy.js';
 import { registerDoctor } from './commands/doctor.js';
 import { registerLint } from './commands/lint.js';
 import { registerList } from './commands/list.js';
@@ -29,6 +30,7 @@ async function main() {
     .addHelpText('beforeAll', `${splash()}\n`);
 
   registerBrowse(program);
+  registerDeploy(program);
   registerDoctor(program);
   registerLint(program);
   registerList(program);
