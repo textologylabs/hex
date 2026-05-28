@@ -1141,3 +1141,83 @@ describe('parseManifestObject — stub block (M8.1)', () => {
     ).toThrow(/only allowed on components/);
   });
 });
+
+describe('parseManifestObject — deploy + cicd stanzas (M12.1)', () => {
+  it('accepts a minimal deploy stanza', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      deploy: { adapter: 'vercel' },
+    });
+    expect(m.deploy).toEqual({ adapter: 'vercel' });
+  });
+
+  it('preserves adapter-specific keys via passthrough', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      deploy: { adapter: 'vercel', prod: true, project: 'foo' },
+    });
+    expect(m.deploy).toEqual({ adapter: 'vercel', prod: true, project: 'foo' });
+  });
+
+  it('accepts a minimal cicd stanza', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      cicd: { provider: 'github-actions' },
+    });
+    expect(m.cicd).toEqual({ provider: 'github-actions' });
+  });
+
+  it('preserves provider-specific keys via passthrough', () => {
+    const m = parseManifestObject({
+      ...baseManifest,
+      cicd: { provider: 'github-actions', 'node-version': '20', 'deploy-on': 'push-main' },
+    });
+    expect(m.cicd).toEqual({
+      provider: 'github-actions',
+      'node-version': '20',
+      'deploy-on': 'push-main',
+    });
+  });
+
+  it('rejects a non-kebab adapter name', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        deploy: { adapter: 'Vercel_Pro' },
+      }),
+    ).toThrow(/adapter name must be kebab-case/);
+  });
+
+  it('rejects a non-kebab provider name', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        cicd: { provider: 'GitHub Actions' },
+      }),
+    ).toThrow(/provider name must be kebab-case/);
+  });
+
+  it('rejects a missing adapter field', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        deploy: { prod: false },
+      }),
+    ).toThrow(/deploy/);
+  });
+
+  it('rejects a missing provider field', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        cicd: { 'node-version': '20' },
+      }),
+    ).toThrow(/cicd/);
+  });
+
+  it('omitting both stanzas remains valid (back-compat)', () => {
+    const m = parseManifestObject(baseManifest);
+    expect(m.deploy).toBeUndefined();
+    expect(m.cicd).toBeUndefined();
+  });
+});

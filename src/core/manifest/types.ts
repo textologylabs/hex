@@ -177,6 +177,25 @@ export type Stub = {
   fixtures?: string;
 };
 
+/**
+ * Deploy stanza (M12.1). `adapter` identifies the deploy adapter by name;
+ * any other keys are adapter-specific config that round-trips through the
+ * manifest unchanged. The adapter's own `validateConfig` checks them.
+ */
+export type Deploy = {
+  adapter: string;
+  [key: string]: unknown;
+};
+
+/**
+ * CI/CD stanza (M12.1). `provider` identifies the CI/CD provider by name;
+ * any other keys are provider-specific config.
+ */
+export type Cicd = {
+  provider: string;
+  [key: string]: unknown;
+};
+
 export type Manifest = {
   type: 'component' | 'recipe';
   name: string;
@@ -192,4 +211,6 @@ export type Manifest = {
   consumes?: string[];
   requires?: Requirement[];
   stub?: Stub;
+  deploy?: Deploy;
+  cicd?: Cicd;
 };

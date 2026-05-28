@@ -406,6 +406,36 @@ export const stubSchema = z
   })
   .strict();
 
+// Deploy + CI/CD stanzas (M12.1). The outer schema validates the shape every
+// adapter / provider shares — a canonical name plus arbitrary adapter-specific
+// keys. The adapter's own `validateConfig` (in src/core/deploy) sees the full
+// stanza at resolve time and is responsible for its own key validation. Using
+// `.passthrough()` keeps unknown keys in the parsed manifest instead of stripping
+// them, so adapter-specific config survives the round-trip.
+export const deploySchema = z
+  .object({
+    adapter: z
+      .string()
+      .min(1)
+      .regex(
+        KEBAB_KEY_RE,
+        'deploy adapter name must be kebab-case ([a-z0-9-], no leading/trailing dash)',
+      ),
+  })
+  .passthrough();
+
+export const cicdSchema = z
+  .object({
+    provider: z
+      .string()
+      .min(1)
+      .regex(
+        KEBAB_KEY_RE,
+        'cicd provider name must be kebab-case ([a-z0-9-], no leading/trailing dash)',
+      ),
+  })
+  .passthrough();
+
 // Manifest schema with prompts already desugared (each entry { name, def }).
 // `sections:` opts the manifest into total coverage — every prompt must
 // appear in exactly one section, and section entries must reference real
@@ -434,6 +464,8 @@ export const manifestSchema = z
     consumes: consumesSchema.optional(),
     requires: requiresSchema.optional(),
     stub: stubSchema.optional(),
+    deploy: deploySchema.optional(),
+    cicd: cicdSchema.optional(),
   })
   .superRefine((manifest, ctx) => {
     for (const field of ['provides', 'consumes', 'requires', 'stub'] as const) {

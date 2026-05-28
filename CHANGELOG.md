@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- M12.1 — Deploy + CI/CD plugin interfaces. `DeployAdapter` (canonical name, required env vars, `validateConfig`, `deploy(ctx) → { url, logs }`) and `CicdProvider` (`validateConfig`, `emitWorkflow(ctx) → EmittedFile[]`) live in new `src/core/deploy/`, with a process-wide registry (`registerDeployAdapter`, `getDeployAdapter`, mirrors for providers) and a built-in `none` adapter so templates without a deploy story still validate. Manifest schema adds optional `deploy: { adapter: <name>, … }` and `cicd: { provider: <name>, … }` stanzas, both `.passthrough()` so adapter-specific keys round-trip unchanged — the adapter's own `validateConfig` is responsible for validating its keys. 18 new tests (registry lookup, null adapter no-op, schema acceptance + rejection paths, passthrough round-trip, back-compat for templates omitting both stanzas). First ticket of the M12 epic; concrete adapter (Vercel) and provider (`cicd-github-actions`) land in M12.3 and M12.4.
+
 ### Changed
 
 - Lockfile — capture the full nested-recipe tree. The M10.1 `LockChild` schema and the M10.2 `buildLockfile` builder now record composed children **recursively**: a recipe child carries its own descendants under a nested `children` field (a component leaf omits it). This closes the M10.2 known limitation — only the root's immediate children were captured — so the lockfile describes the whole composition tree the M11 upgrade engine needs for pristine reconstruction. The schema's `lockChildSchema` becomes a `z.lazy` recursive type; the builder walks each child's resolved sub-recipe. 3 new tests cover nested-tree schema validation (including recursive rejection of a malformed grandchild) and a three-level `recipe → recipe → component` render whose lockfile records the tree.
