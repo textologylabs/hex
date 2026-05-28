@@ -18,3 +18,11 @@ export {
   registerDeployAdapter,
 } from './registry.js';
 export { nullAdapter } from './null-adapter.js';
+export { bootstrapBuiltinAdapters } from './bootstrap.js';
+export {
+  VercelDeployError,
+  createVercelAdapter,
+  extractDeployUrl,
+  vercelAdapter,
+} from './adapters/vercel.js';
+export type { VercelRunner, VercelRunnerResult } from './adapters/vercel.js';
