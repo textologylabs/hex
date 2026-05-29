@@ -83,6 +83,16 @@ Or in dev:
 npm run dev -- doctor
 ```
 
+## Deploying a generated app
+
+Templates that declare `deploy:` and `cicd:` stanzas in their
+`.hex/manifest.yaml` ship two deploy paths in the box: `hex deploy`
+from your laptop, and `.github/workflows/deploy.yml` on every push.
+Hex 0.x bundles the **Vercel** deploy adapter and the
+**`cicd-github-actions`** provider — see
+[`docs/deploy.md`](./docs/deploy.md) for the full tour, and the
+`templates/vite-ts-spa` template for a working example.
+
 ## Upgrading a generated app
 
 When your template ships a new version, `hex upgrade <new-template>`
