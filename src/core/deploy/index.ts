@@ -26,3 +26,9 @@ export {
   vercelAdapter,
 } from './adapters/vercel.js';
 export type { VercelRunner, VercelRunnerResult } from './adapters/vercel.js';
+export {
+  GITHUB_ACTIONS_PROVIDER_NAME,
+  GithubActionsProviderError,
+  createGithubActionsProvider,
+  githubActionsProvider,
+} from './providers/github-actions.js';
