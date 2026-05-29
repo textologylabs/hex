@@ -201,6 +201,93 @@ release blocker for v1.0.**)
 
 ---
 
+## 4. `hex deploy` end-to-end (M12)
+
+Unit tests cover the dispatch shape (scripted adapter, mocked
+`execFile`) and the workflow-yaml emitter. What they can't cover is
+the actual Vercel CLI and the actual GitHub Actions runner — both have
+to be exercised against real services before a release.
+
+### 4.1 Pre-reqs
+
+- A throwaway Vercel project (don't reuse a production one).
+  `vercel link` it locally if you haven't.
+- A throwaway GitHub repo with `VERCEL_TOKEN` set as a secret:
+  ```sh
+  gh secret set VERCEL_TOKEN
+  ```
+- `VERCEL_TOKEN` exported in your local shell for the laptop-deploy
+  pass.
+
+### 4.2 Laptop deploy (`hex new` + `hex deploy`)
+
+```sh
+rm -rf /tmp/hex-vts && \
+  node dist/cli.js new templates/vite-ts-spa /tmp/hex-vts && \
+  cd /tmp/hex-vts && \
+  npm install && \
+  hex deploy --dry-run
+```
+
+Expect:
+- `--dry-run` prints `adapter: vercel`, the app root, and
+  `VERCEL_TOKEN=<set>` (or `<missing>` if you forgot to export it).
+- Exit code 0, no Vercel API calls.
+
+Now the real one:
+
+```sh
+hex deploy
+```
+
+Expect:
+- The vercel CLI runs (you'll see its banner).
+- A `https://…vercel.app` URL printed on stdout.
+- Exit code 0.
+- The app is actually reachable at the printed URL.
+
+Failure modes worth a manual sweep — each should exit non-zero with a
+single clear message and **no half-deployed state**:
+- `unset VERCEL_TOKEN; hex deploy` → "missing required env vars: VERCEL_TOKEN".
+- `VERCEL_TOKEN=bogus hex deploy` → vercel CLI's own auth error
+  surfaced via `VercelDeployError`.
+- `cd /; hex deploy` → "No .hex/lockfile.yaml found …".
+
+### 4.3 CI/CD deploy (GitHub Actions)
+
+Push the generated `/tmp/hex-vts` to the throwaway repo's `main`:
+
+```sh
+git init -b main && git add . && git commit -m "init" && \
+  git remote add origin <repo-url> && git push -u origin main
+```
+
+Then in the GitHub Actions tab:
+
+- The `Deploy` workflow runs.
+- All pipeline steps (`npm ci`, typecheck, test, lint, build) pass.
+- The `Deploy via vercel` step prints a `https://…vercel.app` URL.
+- The workflow concludes green.
+- The app is reachable at the printed URL.
+
+If `deploy-on: manual` is set in the manifest, the workflow should
+only run via the "Run workflow" button — not on push.
+
+### 4.4 No-adapter path
+
+To confirm the `none` adapter path:
+
+```sh
+node dist/cli.js new templates/node-ts-cli /tmp/hex-cli-noop && \
+  cd /tmp/hex-cli-noop && hex deploy
+```
+
+`node-ts-cli` does not declare a `deploy:` stanza. Expect:
+- stdout: `No deploy adapter configured — nothing to do.`
+- Exit code 0. No vercel invocation.
+
+---
+
 ## Release checklist
 
 Before tagging a release:
@@ -209,6 +296,8 @@ Before tagging a release:
 - [ ] §2.1 + §2.2 + §2.3 with a real public repo + a real private repo
       you control. §2.4 failure modes covered.
 - [ ] §3.1 + §3.2 on Windows.
+- [ ] §4.2 + §4.3 + §4.4 against a throwaway Vercel project + a throwaway
+      GitHub repo.
 - [ ] `npm run check` passes.
 - [ ] CHANGELOG entry for the release.
 - [ ] `prepublishOnly` script (`npm run check && npm run build`) runs
