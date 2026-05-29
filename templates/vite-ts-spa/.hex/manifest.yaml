@@ -1,0 +1,84 @@
+type: component
+name: vite-ts-spa
+version: 0.1.0
+kind: webapp
+
+prompts:
+  - project_name:
+      type: string
+      required: true
+      description: Package name (e.g. my-app)
+      pattern: '^[a-z][a-z0-9-]*$'
+  - description:
+      type: string
+      default: ''
+      description: Short description
+  - author:
+      type: string
+      default: ''
+      description: Author
+  - license:
+      type: enum
+      choices: [MIT, Apache-2.0]
+      default: MIT
+      description: License
+
+sections:
+  - title: Basics
+    prompts: [project_name, description, author]
+  - title: Licence
+    prompts: [license]
+
+# Deploy + CI/CD (M12). The generated app pins both stanzas in its
+# lockfile at render time, so `hex deploy` knows what adapter to invoke
+# and a `cicd-github-actions` provider can emit a workflow that calls
+# the same adapter on every push.
+deploy:
+  adapter: vercel
+
+cicd:
+  provider: github-actions
+  node-version: '20'
+
+hooks:
+  post_render:
+    - rename: { from: gitignore, to: .gitignore }
+
+setup:
+  message: |
+    Your Vite SPA is scaffolded. A few things to wire up before it can deploy:
+  tasks:
+    - id: install-deps
+      title: Install dependencies
+      detail: |
+        cd into the project and run:
+          npm install
+    - id: git-init
+      title: Initialise git and connect a remote
+      detail: |
+        git init -b main
+        git add .
+        git commit -m "initial commit"
+        git remote add origin <your-github-url>
+        git push -u origin main
+    - id: vercel-link
+      title: Link the project to Vercel
+      detail: |
+        Install the Vercel CLI if you haven't:
+          npm i -g vercel
+        Then link the project (creates .vercel/ — keep it out of git):
+          vercel link
+    - id: set-vercel-token
+      title: Set VERCEL_TOKEN secret on the GitHub repo
+      detail: |
+        Generate a deploy token at https://vercel.com/account/tokens
+        Then add it as a repo secret:
+          gh secret set VERCEL_TOKEN
+        (The deploy workflow in .github/workflows/deploy.yml uses this token.)
+    - id: first-deploy
+      title: First deploy
+      detail: |
+        From your project root:
+          hex deploy
+        On success, Hex prints the deploy URL. Subsequent pushes to
+        `main` trigger the GitHub Actions workflow to deploy automatically.
