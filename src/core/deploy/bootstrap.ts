@@ -1,5 +1,12 @@
 import { vercelAdapter } from './adapters/vercel.js';
-import { DeployRegistryError, listDeployAdapterNames, registerDeployAdapter } from './registry.js';
+import { githubActionsProvider } from './providers/github-actions.js';
+import {
+  DeployRegistryError,
+  listCicdProviderNames,
+  listDeployAdapterNames,
+  registerCicdProvider,
+  registerDeployAdapter,
+} from './registry.js';
 
 /**
  * Register every built-in deploy adapter into the process-wide registry.
@@ -17,6 +24,15 @@ export function bootstrapBuiltinAdapters(): void {
     if (listDeployAdapterNames().includes(adapter.name)) continue;
     try {
       registerDeployAdapter(adapter);
+    } catch (err) {
+      if (err instanceof DeployRegistryError) continue;
+      throw err;
+    }
+  }
+  for (const provider of [githubActionsProvider]) {
+    if (listCicdProviderNames().includes(provider.name)) continue;
+    try {
+      registerCicdProvider(provider);
     } catch (err) {
       if (err instanceof DeployRegistryError) continue;
       throw err;
