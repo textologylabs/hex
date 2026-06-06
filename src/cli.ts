@@ -7,6 +7,7 @@ import { registerDeploy } from './commands/deploy.js';
 import { registerDoctor } from './commands/doctor.js';
 import { registerLint } from './commands/lint.js';
 import { registerList } from './commands/list.js';
+import { registerMarketplace } from './commands/marketplace.js';
 import { registerNew } from './commands/new.js';
 import { registerPublish } from './commands/publish.js';
 import { registerSearch } from './commands/search.js';
@@ -36,6 +37,7 @@ async function main() {
   registerDoctor(program);
   registerLint(program);
   registerList(program);
+  registerMarketplace(program);
   registerNew(program);
   registerPublish(program);
   registerSearch(program);

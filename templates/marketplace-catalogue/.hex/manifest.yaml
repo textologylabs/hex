@@ -1,0 +1,68 @@
+type: component
+name: marketplace-catalogue
+version: 0.1.0
+kind: catalogue
+
+prompts:
+  - namespace:
+      type: string
+      required: true
+      description: Catalogue namespace (the qualifier in `<namespace>/<name>`)
+      pattern: '^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$'
+  - description:
+      type: string
+      default: ''
+      description: One-line catalogue description
+  - maintainer:
+      type: string
+      required: true
+      description: Primary maintainer (GitHub username or org)
+  - license:
+      type: enum
+      choices: [MIT, Apache-2.0]
+      default: MIT
+      description: Licence
+
+sections:
+  - title: Catalogue identity
+    prompts: [namespace, description, maintainer]
+  - title: Licence
+    prompts: [license]
+
+hooks:
+  post_render:
+    - rename: { from: gitignore, to: .gitignore }
+
+setup:
+  message: |
+    Your catalogue is scaffolded. A few steps to put it on a remote and
+    start curating packages:
+  tasks:
+    - id: git-init
+      title: Initialise git and connect a remote
+      detail: |
+        cd into the directory and run:
+          git init -b main
+          git add .
+          git commit -m "initial catalogue"
+          git remote add origin <your-github-url>
+          git push -u origin main
+    - id: validate-locally
+      title: Validate marketplace.yaml locally
+      detail: |
+        hex marketplace validate marketplace.yaml
+        (The CI workflow at .github/workflows/validate.yml runs the same
+        check on every PR.)
+    - id: add-first-package
+      title: Add your first real package
+      detail: |
+        Edit marketplace.yaml — replace the placeholder `example` package
+        with a real one. Each version entry points at a git repo + tag +
+        optional subdir holding the package's `.hex/` manifest.
+    - id: tell-users
+      title: Tell your users how to consume the catalogue
+      detail: |
+        Have them add the catalogue to ~/.hex/config.yaml:
+          sources:
+            - catalogue: <your-repo-url>
+        Then `hex sources refresh` and `hex new {{ namespace }}/<package> my-app`.
