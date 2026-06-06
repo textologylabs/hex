@@ -293,13 +293,28 @@ function artifactOf(bundle: ComponentBundle, ref?: ChildRef): LockArtifact {
  * Derive the source spec — *how to re-fetch this artifact*.
  *
  * A `git:` child reference carries the upstream coordinate verbatim, so
- * it is recorded exactly. Everything else — `file:` references, bare
- * `name`/`slot` references resolved through discovery, and the root
- * bundle — is recorded as the resolved local path it was loaded from.
+ * it is recorded exactly. A bundle that was resolved through a catalogue
+ * (M13.4) carries its catalogue coordinate in `bundle.catalogueSource`
+ * and is recorded as a `kind: 'catalogue'` spec — the underlying
+ * package's git URL stays in the catalogue's `marketplace.yaml` rather
+ * than being copied into every lockfile. Everything else — `file:`
+ * references, bare `name`/`slot` references resolved through discovery,
+ * and the root bundle without a catalogue marker — is recorded as the
+ * resolved local path it was loaded from.
  */
 function sourceSpecFor(bundle: ComponentBundle, ref?: ChildRef): SourceSpec {
   if (ref?.kind === 'git') {
     return ref.ref ? { kind: 'git', url: ref.url, ref: ref.ref } : { kind: 'git', url: ref.url };
+  }
+  if (bundle.catalogueSource) {
+    const cs = bundle.catalogueSource;
+    return {
+      kind: 'catalogue',
+      catalogue_url: cs.catalogueUrl,
+      namespace: cs.namespace,
+      name: cs.packageName,
+      ...(cs.catalogueRef !== undefined ? { catalogue_ref: cs.catalogueRef } : {}),
+    };
   }
   return { kind: 'file', path: bundle.rootPath };
 }

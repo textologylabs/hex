@@ -3,6 +3,23 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { parseManifestFile } from '../manifest/parse.js';
 import type { Manifest } from '../manifest/types.js';
 
+/**
+ * A bundle that was resolved through a git catalogue (M13.4). Carried on
+ * the bundle so the lockfile can record a `kind: 'catalogue'` source spec
+ * and `hex upgrade` can re-resolve later without having to remember which
+ * `catalogue:` source it came from.
+ */
+export type CatalogueBundleSource = {
+  /** Git URL of the catalogue repo (the `marketplace.yaml` host). */
+  catalogueUrl: string;
+  /** Optional ref of the catalogue repo (branch / tag / SHA). */
+  catalogueRef?: string;
+  /** Catalogue namespace — the qualifier in `<namespace>/<name>`. */
+  namespace: string;
+  /** Package name within the catalogue. */
+  packageName: string;
+};
+
 export type ComponentBundle = {
   manifest: Manifest;
   rootPath: string;
@@ -21,6 +38,12 @@ export type ComponentBundle = {
    * the flag.
    */
   sourceKind: 'file' | 'git';
+  /**
+   * Set when the bundle was resolved through a catalogue (M13.4). Lets
+   * the lockfile record a `kind: 'catalogue'` source spec rather than
+   * the cached file path the bundle is loaded from.
+   */
+  catalogueSource?: CatalogueBundleSource;
 };
 
 export class SourceError extends Error {

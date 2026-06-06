@@ -75,6 +75,19 @@ describe('lockfileSchema — shape', () => {
       { kind: 'git', url: 'https://github.com/acme/x.git', ref: 'v1' },
       { kind: 'git', url: 'https://github.com/acme/x.git' },
       { kind: 'marketplace', registry: 'https://registry.hex.dev/', name: 'x' },
+      {
+        kind: 'catalogue',
+        catalogue_url: 'https://github.com/acme/hex-marketplace',
+        namespace: 'acme',
+        name: 'x',
+      },
+      {
+        kind: 'catalogue',
+        catalogue_url: 'https://github.com/acme/hex-marketplace',
+        catalogue_ref: 'main',
+        namespace: 'acme',
+        name: 'x',
+      },
     ] as const) {
       const lock = validRecipeLockfile({
         root: { name: 'x', version: '1.0.0', type: 'recipe', source },
