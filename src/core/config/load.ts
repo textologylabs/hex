@@ -90,6 +90,9 @@ export async function loadConfig(opts?: LoadConfigOpts): Promise<HexConfig> {
       if ('path' in s) {
         return { kind: 'path' as const, path: normalisePath(s.path, configDir) };
       }
+      if ('catalogue' in s) {
+        return { kind: 'catalogue' as const, url: s.catalogue, ref: s.ref };
+      }
       return { kind: 'git' as const, url: s.git, ref: s.ref };
     }),
     marketplaces: result.data.marketplaces.map((m) => ({ id: m.id, registry: m.registry })),

@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { stringify as stringifyYaml } from 'yaml';
 import {
   type RefreshResult,
   gatherSourceStatuses,
+  refreshAllCatalogueSources,
   refreshAllGitSources,
 } from '../../src/commands/sources.js';
 import { resolveGitSource } from '../../src/core/sources/git-source.js';
@@ -253,5 +255,188 @@ describe('refreshAllGitSources', () => {
     const display = `file://${upstream}@main`;
     expect(events).toEqual([`start:${display}`, `done:${display}:ok`]);
     expect(results[0]?.ok).toBe(true);
+  });
+});
+
+async function makeCatalogueRepo(
+  yaml: Record<string, unknown>,
+  name = 'catalogue-upstream',
+): Promise<string> {
+  const upstream = join(work, name);
+  await mkdir(upstream, { recursive: true });
+  await runGit(upstream, 'init', '-q', '-b', 'main');
+  await writeFile(join(upstream, 'marketplace.yaml'), stringifyYaml(yaml), 'utf8');
+  await runGit(upstream, 'add', '.');
+  await runGit(upstream, 'commit', '-q', '-m', 'init');
+  return upstream;
+}
+
+describe('catalogue sources (M13.2)', () => {
+  it('gatherSourceStatuses reports catalogue with namespace + package count when cached', async () => {
+    const upstream = await makeCatalogueRepo({
+      namespace: 'hex',
+      packages: [
+        { name: 'a', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] },
+        { name: 'b', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] },
+      ],
+    });
+    const cacheDir = join(work, 'cache');
+    await resolveGitSource({ url: `file://${upstream}`, ref: 'main' }, { cacheDir });
+
+    const statuses = await gatherSourceStatuses(
+      {
+        sources: [{ kind: 'catalogue', url: `file://${upstream}`, ref: 'main' }],
+      },
+      { cacheDir },
+    );
+
+    expect(statuses).toHaveLength(1);
+    const s = statuses[0];
+    expect(s?.kind).toBe('catalogue');
+    if (s?.kind !== 'catalogue') throw new Error('expected catalogue');
+    expect(s.status.cached).toBe(true);
+    expect(s.status.namespace).toBe('hex');
+    expect(s.status.packageCount).toBe(2);
+    expect(s.status.catalogueError).toBeUndefined();
+  });
+
+  it('gatherSourceStatuses surfaces catalogueError when marketplace.yaml is malformed', async () => {
+    const upstream = join(work, 'bad-catalogue');
+    await mkdir(upstream, { recursive: true });
+    await runGit(upstream, 'init', '-q', '-b', 'main');
+    await writeFile(join(upstream, 'marketplace.yaml'), 'namespace: Bad\npackages: []\n', 'utf8');
+    await runGit(upstream, 'add', '.');
+    await runGit(upstream, 'commit', '-q', '-m', 'init');
+
+    const cacheDir = join(work, 'cache');
+    await resolveGitSource({ url: `file://${upstream}`, ref: 'main' }, { cacheDir });
+
+    const statuses = await gatherSourceStatuses(
+      {
+        sources: [{ kind: 'catalogue', url: `file://${upstream}`, ref: 'main' }],
+      },
+      { cacheDir },
+    );
+
+    const s = statuses[0];
+    if (s?.kind !== 'catalogue') throw new Error('expected catalogue');
+    expect(s.status.cached).toBe(true);
+    expect(s.status.catalogueError).toMatch(/schema validation failed/);
+    expect(s.status.namespace).toBeUndefined();
+  });
+
+  it('gatherSourceStatuses reports uncached + no validation attempt when cache is cold', async () => {
+    const upstream = await makeCatalogueRepo({
+      namespace: 'hex',
+      packages: [{ name: 'a', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] }],
+    });
+    const cacheDir = join(work, 'cache');
+
+    const statuses = await gatherSourceStatuses(
+      {
+        sources: [{ kind: 'catalogue', url: `file://${upstream}`, ref: 'main' }],
+      },
+      { cacheDir },
+    );
+    const s = statuses[0];
+    if (s?.kind !== 'catalogue') throw new Error('expected catalogue');
+    expect(s.status.cached).toBe(false);
+    expect(s.status.namespace).toBeUndefined();
+    expect(s.status.catalogueError).toBeUndefined();
+  });
+
+  it('refreshAllCatalogueSources clones + validates and returns the sha', async () => {
+    const upstream = await makeCatalogueRepo({
+      namespace: 'hex',
+      packages: [{ name: 'a', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] }],
+    });
+    const cacheDir = join(work, 'cache');
+
+    const results = await refreshAllCatalogueSources(
+      {
+        sources: [{ kind: 'catalogue', url: `file://${upstream}`, ref: 'main' }],
+      },
+      { cacheDir },
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.ok).toBe(true);
+    expect(results[0]?.sha).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('refreshAllCatalogueSources reports schema failures per-source without crashing', async () => {
+    const goodUpstream = await makeCatalogueRepo(
+      {
+        namespace: 'hex',
+        packages: [{ name: 'a', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] }],
+      },
+      'good-catalogue',
+    );
+
+    const badUpstream = join(work, 'bad-catalogue');
+    await mkdir(badUpstream, { recursive: true });
+    await runGit(badUpstream, 'init', '-q', '-b', 'main');
+    await writeFile(
+      join(badUpstream, 'marketplace.yaml'),
+      'namespace: BAD\npackages: []\n',
+      'utf8',
+    );
+    await runGit(badUpstream, 'add', '.');
+    await runGit(badUpstream, 'commit', '-q', '-m', 'init');
+
+    const cacheDir = join(work, 'cache');
+    const results = await refreshAllCatalogueSources(
+      {
+        sources: [
+          { kind: 'catalogue', url: `file://${goodUpstream}`, ref: 'main' },
+          { kind: 'catalogue', url: `file://${badUpstream}`, ref: 'main' },
+        ],
+      },
+      { cacheDir },
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0]?.ok).toBe(true);
+    expect(results[1]?.ok).toBe(false);
+    expect(results[1]?.error).toMatch(/schema validation failed/);
+  });
+
+  it('refreshAllCatalogueSources fires onStart/onComplete per source', async () => {
+    const upstream = await makeCatalogueRepo({
+      namespace: 'hex',
+      packages: [{ name: 'a', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] }],
+    });
+    const events: string[] = [];
+
+    const results = await refreshAllCatalogueSources(
+      {
+        sources: [{ kind: 'catalogue', url: `file://${upstream}`, ref: 'main' }],
+      },
+      {
+        cacheDir: join(work, 'cache'),
+        onStart: (d) => events.push(`start:${d}`),
+        onComplete: (r) => events.push(`done:${r.display}:${r.ok ? 'ok' : 'fail'}`),
+      },
+    );
+
+    const display = `file://${upstream}@main`;
+    expect(events).toEqual([`start:${display}`, `done:${display}:ok`]);
+    expect(results[0]?.ok).toBe(true);
+  });
+
+  it('refreshAllGitSources skips catalogue sources (separation of concerns)', async () => {
+    const upstream = await makeCatalogueRepo({
+      namespace: 'hex',
+      packages: [{ name: 'a', versions: [{ tag: '0.1.0', source: { git: 'https://x/y' } }] }],
+    });
+
+    const gitResults: RefreshResult[] = await refreshAllGitSources(
+      {
+        sources: [{ kind: 'catalogue', url: `file://${upstream}`, ref: 'main' }],
+      },
+      { cacheDir: join(work, 'cache') },
+    );
+
+    expect(gitResults).toEqual([]);
   });
 });
