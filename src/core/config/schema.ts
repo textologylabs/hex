@@ -9,7 +9,18 @@ const gitSourceSchema = z.object({
   ref: z.string().min(1).optional(),
 });
 
-export const sourceRootSchema = z.union([pathSourceSchema, gitSourceSchema]);
+// Catalogue sources (M13.2) — a git repo whose root carries a
+// `marketplace.yaml` (M13.1). Same wire shape as `git:` plus a different
+// discriminator, so a single config can mix catalogues and bare git
+// template repos. Auth is whatever the user's `git` already does — no
+// explicit auth field; if/when we add one it lands on both `git:` and
+// `catalogue:` together.
+const catalogueSourceSchema = z.object({
+  catalogue: z.string().min(1),
+  ref: z.string().min(1).optional(),
+});
+
+export const sourceRootSchema = z.union([pathSourceSchema, gitSourceSchema, catalogueSourceSchema]);
 
 // Marketplace ids are address qualifiers (`<id>/<name>`) — same charset
 // the addressing parser accepts (see `core/marketplace/address.ts`).

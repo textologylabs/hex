@@ -120,6 +120,14 @@ async function resolveSourceRoot(
       return null;
     }
   }
+  if (source.kind === 'catalogue') {
+    // Catalogue sources don't participate in the path-walking discovery
+    // pipeline — their packages are surfaced via the Catalogue
+    // interface (M13.3 wires `hex list` / `browse` / `search` through
+    // it). Skip them here so a config that mixes the two doesn't drop
+    // the path / git sources.
+    return null;
+  }
   return { walkRoot: source.path, displaySourceRoot: source.path, sourceKind: 'file' };
 }
 

@@ -175,4 +175,52 @@ describe('loadConfig', () => {
     );
     await expect(loadConfig({ configDir: dir })).rejects.toThrow(ConfigError);
   });
+
+  it('parses a catalogue source with a ref (M13.2)', async () => {
+    await writeFile(
+      join(dir, 'config.yaml'),
+      'sources:\n  - catalogue: https://github.com/textologylabs/hex-marketplace\n    ref: main\n',
+      'utf8',
+    );
+    const cfg = await loadConfig({ configDir: dir });
+    expect(cfg.sources).toEqual([
+      {
+        kind: 'catalogue',
+        url: 'https://github.com/textologylabs/hex-marketplace',
+        ref: 'main',
+      },
+    ]);
+  });
+
+  it('parses a catalogue source without a ref', async () => {
+    await writeFile(
+      join(dir, 'config.yaml'),
+      'sources:\n  - catalogue: https://github.com/acme/marketplace\n',
+      'utf8',
+    );
+    const cfg = await loadConfig({ configDir: dir });
+    expect(cfg.sources).toEqual([
+      {
+        kind: 'catalogue',
+        url: 'https://github.com/acme/marketplace',
+        ref: undefined,
+      },
+    ]);
+  });
+
+  it('parses a config that mixes path, git, and catalogue sources', async () => {
+    await writeFile(
+      join(dir, 'config.yaml'),
+      `sources:
+  - path: /local/templates
+  - git: https://github.com/acme/templates
+    ref: main
+  - catalogue: https://github.com/hex/marketplace
+    ref: v1
+`,
+      'utf8',
+    );
+    const cfg = await loadConfig({ configDir: dir });
+    expect(cfg.sources.map((s) => s.kind)).toEqual(['path', 'git', 'catalogue']);
+  });
 });
