@@ -4,7 +4,12 @@ import {
   type AggregateCatalogueEntry,
   createAggregateCatalogue,
 } from '../core/catalogue/aggregate.js';
+import {
+  loadCatalogueProviders,
+  searchCatalogueProviders,
+} from '../core/catalogue/catalogue-providers.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
+import type { HexConfig } from '../core/config/types.js';
 import type { MarketplaceConfig } from '../core/marketplace/address.js';
 import { loadAggregatePolicy } from '../core/marketplace/policy.js';
 
@@ -31,6 +36,47 @@ export async function searchMarketplaces(
     query,
   );
   return { results: entries, warnings: [...policy.warnings, ...warnings] };
+}
+
+/**
+ * Search every configured marketplace AND every `catalogue:` source
+ * (M13.3). Marketplace hits and catalogue hits are unioned into a single
+ * `AggregateCatalogueEntry[]`, each tagged with its originating namespace
+ * — so a name clash across surfaces appears as two distinct qualified
+ * entries rather than one shadowing the other. Marketplace results come
+ * first to preserve the existing CLI ordering.
+ */
+export type SearchAllOpts = {
+  /** Forwarded to `loadCatalogueProviders` (test injection). */
+  cacheDir?: string;
+};
+
+export async function searchAllSources(
+  config: HexConfig,
+  query: string,
+  opts: SearchAllOpts = {},
+): Promise<SearchResult> {
+  const marketplaces = config.marketplaces ?? [];
+  const { results: mktResults, warnings: mktWarnings } = await searchMarketplaces(
+    marketplaces,
+    query,
+  );
+
+  const providerOpts: { cacheDir?: string } = {};
+  if (opts.cacheDir !== undefined) providerOpts.cacheDir = opts.cacheDir;
+  const { providers, warnings: providerWarnings } = await loadCatalogueProviders(
+    config,
+    providerOpts,
+  );
+  const { entries: catEntries, warnings: catSearchWarnings } = await searchCatalogueProviders(
+    providers,
+    query,
+  );
+
+  return {
+    results: [...mktResults, ...catEntries],
+    warnings: [...mktWarnings, ...providerWarnings, ...catSearchWarnings],
+  };
 }
 
 /** Render search hits as an aligned `qualified-name@version  type  description` table. */
@@ -68,22 +114,24 @@ export function registerSearch(program: Command): void {
     .action(async (query: string, opts: { json: boolean }) => {
       const config = await loadConfig();
       const marketplaces = config.marketplaces ?? [];
+      const hasCatalogueSources = config.sources.some((s) => s.kind === 'catalogue');
 
-      if (marketplaces.length === 0) {
+      if (marketplaces.length === 0 && !hasCatalogueSources) {
         if (opts.json) {
           process.stdout.write(`${JSON.stringify({ results: [], warnings: [] }, null, 2)}\n`);
           return;
         }
         const configPath = getDefaultConfigPath();
         const example =
+          '  sources:\n    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
           '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
         process.stdout.write(
-          `${brand.dim('No marketplaces configured.')}\n\nAdd a marketplaces block to ${brand.bold(configPath)}:\n\n${example}`,
+          `${brand.dim('No marketplaces or catalogue sources configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
         );
         return;
       }
 
-      const { results, warnings } = await searchMarketplaces(marketplaces, query);
+      const { results, warnings } = await searchAllSources(config, query);
 
       if (opts.json) {
         process.stdout.write(`${JSON.stringify({ results, warnings }, null, 2)}\n`);

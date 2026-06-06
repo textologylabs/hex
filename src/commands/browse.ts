@@ -5,7 +5,13 @@ import {
   type AggregateCatalogueEntry,
   createAggregateCatalogue,
 } from '../core/catalogue/aggregate.js';
+import {
+  browseCatalogueProviders,
+  loadCatalogueProviders,
+  searchCatalogueProviders,
+} from '../core/catalogue/catalogue-providers.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
+import type { HexConfig } from '../core/config/types.js';
 import type { MarketplaceConfig } from '../core/marketplace/address.js';
 import { loadAggregatePolicy } from '../core/marketplace/policy.js';
 import { formatSearchTable } from './search.js';
@@ -63,6 +69,80 @@ export async function browseCategory(
   return { category, results: entries, warnings: [...policy.warnings, ...warnings] };
 }
 
+export type BrowseAllOpts = {
+  /** Forwarded to `loadCatalogueProviders` (test injection). */
+  cacheDir?: string;
+};
+
+/**
+ * Category tally across every configured marketplace AND every
+ * `catalogue:` source (M13.3). Counts union over both surfaces.
+ */
+export async function listAllCategories(
+  config: HexConfig,
+  opts: BrowseAllOpts = {},
+): Promise<BrowseCategoriesResult> {
+  const marketplaces = config.marketplaces ?? [];
+  const mktResult = await listCategories(marketplaces);
+
+  const providerOpts: { cacheDir?: string } = {};
+  if (opts.cacheDir !== undefined) providerOpts.cacheDir = opts.cacheDir;
+  const { providers, warnings: providerWarnings } = await loadCatalogueProviders(
+    config,
+    providerOpts,
+  );
+  const { entries: catEntries, warnings: searchWarnings } = await searchCatalogueProviders(
+    providers,
+    '',
+  );
+
+  const counts = new Map<string, number>(mktResult.categories.map((c) => [c.name, c.count]));
+  for (const entry of catEntries) {
+    for (const category of entry.categories) {
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+  }
+  const categories = [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
+
+  return {
+    categories,
+    warnings: [...mktResult.warnings, ...providerWarnings, ...searchWarnings],
+  };
+}
+
+/**
+ * Browse one category across every configured marketplace AND every
+ * `catalogue:` source (M13.3). Marketplace entries come first to
+ * preserve existing CLI ordering.
+ */
+export async function browseCategoryAllSources(
+  config: HexConfig,
+  category: string,
+  opts: BrowseAllOpts = {},
+): Promise<BrowseEntriesResult> {
+  const marketplaces = config.marketplaces ?? [];
+  const mktResult = await browseCategory(marketplaces, category);
+
+  const providerOpts: { cacheDir?: string } = {};
+  if (opts.cacheDir !== undefined) providerOpts.cacheDir = opts.cacheDir;
+  const { providers, warnings: providerWarnings } = await loadCatalogueProviders(
+    config,
+    providerOpts,
+  );
+  const { entries: catEntries, warnings: browseWarnings } = await browseCatalogueProviders(
+    providers,
+    category,
+  );
+
+  return {
+    category,
+    results: [...mktResult.results, ...catEntries],
+    warnings: [...mktResult.warnings, ...providerWarnings, ...browseWarnings],
+  };
+}
+
 /** Render the category list as aligned `name  (count)` rows. */
 export function formatCategories(categories: CategorySummary[]): string {
   const width = Math.max(8, ...categories.map((c) => c.name.length));
@@ -88,24 +168,26 @@ export function registerBrowse(program: Command): void {
     .action(async (category: string | undefined, opts: { json: boolean }) => {
       const config = await loadConfig();
       const marketplaces = config.marketplaces ?? [];
+      const hasCatalogueSources = config.sources.some((s) => s.kind === 'catalogue');
 
-      if (marketplaces.length === 0) {
+      if (marketplaces.length === 0 && !hasCatalogueSources) {
         if (opts.json) {
           process.stdout.write(`${JSON.stringify({ categories: [], warnings: [] }, null, 2)}\n`);
           return;
         }
         const configPath = getDefaultConfigPath();
         const example =
+          '  sources:\n    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
           '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
         process.stdout.write(
-          `${brand.dim('No marketplaces configured.')}\n\nAdd a marketplaces block to ${brand.bold(configPath)}:\n\n${example}`,
+          `${brand.dim('No marketplaces or catalogue sources configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
         );
         return;
       }
 
       // A category argument lists it directly — no picker.
       if (category !== undefined) {
-        const { results, warnings } = await browseCategory(marketplaces, category);
+        const { results, warnings } = await browseCategoryAllSources(config, category);
         if (opts.json) {
           process.stdout.write(`${JSON.stringify({ category, results, warnings }, null, 2)}\n`);
           return;
@@ -119,7 +201,7 @@ export function registerBrowse(program: Command): void {
         return;
       }
 
-      const { categories, warnings } = await listCategories(marketplaces);
+      const { categories, warnings } = await listAllCategories(config);
 
       if (opts.json) {
         process.stdout.write(`${JSON.stringify({ categories, warnings }, null, 2)}\n`);
@@ -146,7 +228,7 @@ export function registerBrowse(program: Command): void {
       });
       if (isCancel(picked)) return;
 
-      const drill = await browseCategory(marketplaces, picked as string);
+      const drill = await browseCategoryAllSources(config, picked as string);
       if (drill.results.length === 0) {
         process.stdout.write(`${brand.dim(`No templates in category "${picked}".`)}\n`);
       } else {

@@ -1,5 +1,11 @@
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import type { AggregateCatalogueEntry } from '../core/catalogue/aggregate.js';
+import {
+  type CatalogueProvider,
+  loadCatalogueProviders,
+  searchCatalogueProviders,
+} from '../core/catalogue/catalogue-providers.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
 import { type TemplateEntry, discoverTemplates } from '../core/discovery/index.js';
 
@@ -11,9 +17,23 @@ export function registerList(program: Command): void {
     .action(async (opts: { json: boolean }) => {
       const config = await loadConfig();
       const { templates, warnings } = await discoverTemplates(config);
+      const { providers, warnings: catalogueWarnings } = await loadCatalogueProviders(config);
+      const { entries: catalogueEntries, warnings: searchWarnings } =
+        await searchCatalogueProviders(providers, '');
+      const allWarnings = [...warnings, ...catalogueWarnings, ...searchWarnings];
 
       if (opts.json) {
-        process.stdout.write(`${JSON.stringify({ templates, warnings }, null, 2)}\n`);
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              templates,
+              catalogueEntries,
+              warnings: allWarnings,
+            },
+            null,
+            2,
+          )}\n`,
+        );
         return;
       }
 
@@ -27,29 +47,59 @@ export function registerList(program: Command): void {
         return;
       }
 
-      if (templates.length === 0) {
+      if (templates.length === 0 && catalogueEntries.length === 0) {
         process.stdout.write(`${brand.dim('No templates found.')}\n`);
       } else {
-        process.stdout.write(formatTable(templates));
+        process.stdout.write(formatTable(templates, catalogueEntries, providers));
       }
 
-      if (warnings.length > 0) {
+      if (allWarnings.length > 0) {
         process.stdout.write('\n');
-        for (const w of warnings) {
+        for (const w of allWarnings) {
           process.stdout.write(`${brand.warn(`! ${w}`)}\n`);
         }
       }
     });
 }
 
-function formatTable(templates: TemplateEntry[]): string {
-  const rows = templates.map((t) => ({
+type Row = {
+  name: string;
+  version: string;
+  type: string;
+  kind: string;
+  source: string;
+};
+
+function templateRow(t: TemplateEntry): Row {
+  return {
     name: t.name,
     version: `@${t.version}`,
     type: t.type,
     kind: t.kind ?? '',
-    path: t.rootPath,
-  }));
+    source: t.rootPath,
+  };
+}
+
+function catalogueRow(e: AggregateCatalogueEntry, providers: CatalogueProvider[]): Row {
+  const provider = providers.find((p) => p.id === e.marketplace);
+  return {
+    name: `${e.marketplace}/${e.name}`,
+    version: `@${e.latest}`,
+    type: e.type,
+    kind: e.kind ?? '',
+    source: provider ? `catalogue:${provider.display}` : `catalogue:${e.marketplace}`,
+  };
+}
+
+function formatTable(
+  templates: TemplateEntry[],
+  catalogueEntries: AggregateCatalogueEntry[],
+  providers: CatalogueProvider[],
+): string {
+  const rows: Row[] = [
+    ...templates.map(templateRow),
+    ...catalogueEntries.map((e) => catalogueRow(e, providers)),
+  ];
 
   const widths = {
     name: Math.max(4, ...rows.map((r) => r.name.length)),
@@ -58,14 +108,14 @@ function formatTable(templates: TemplateEntry[]): string {
     kind: Math.max(4, ...rows.map((r) => r.kind.length)),
   };
 
-  const lines = rows.map((r) => {
-    const name = brand.bold(r.name.padEnd(widths.name));
-    const version = brand.dim(r.version.padEnd(widths.version));
-    const type = r.type.padEnd(widths.type);
-    const kind = r.kind.padEnd(widths.kind);
-    const path = brand.dim(r.path);
-    return `${name}  ${version}  ${type}  ${kind}  ${path}\n`;
-  });
-
-  return lines.join('');
+  return rows
+    .map((r) => {
+      const name = brand.bold(r.name.padEnd(widths.name));
+      const version = brand.dim(r.version.padEnd(widths.version));
+      const type = r.type.padEnd(widths.type);
+      const kind = r.kind.padEnd(widths.kind);
+      const source = brand.dim(r.source);
+      return `${name}  ${version}  ${type}  ${kind}  ${source}\n`;
+    })
+    .join('');
 }
