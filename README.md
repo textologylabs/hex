@@ -2,7 +2,7 @@
 
 Scaffolding tool that assembles applications from templated components — honeycomb-style. Part of the [Hexology](https://github.com/textologylabs/hex) toolset.
 
-Status: **Phase 1 complete — render pipeline, recipes, marketplace, lockfile, and the upgrade engine.** Milestones M1–M11 are in. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
+Status: **Phase 1 + 2 + git-catalogue marketplace complete** — render pipeline, recipes, hosted-marketplace (M9), lockfile (M10), upgrade engine (M11), deploy + CI/CD (M12), and the git-catalogue marketplace model (M13). Milestones M1–M13 are in. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
 
 Install once published: `npm install -g @hexology/hex` and run `hex`.
 
@@ -13,16 +13,19 @@ to `~/.hex/config.yaml` (override the directory with `HEX_CONFIG_DIR`):
 
 ```yaml
 sources:
-  - path: ~/dev/my-templates                          # local directory
-  - git: https://github.com/acme/templates            # git remote, default branch
+  - path: ~/dev/my-templates                                   # local directory
+  - git: https://github.com/acme/templates                     # git remote, default branch
     ref: main
-  - git: git@github.com:acme/internal-templates.git   # ssh, default branch
+  - git: git@github.com:acme/internal-templates.git            # ssh, default branch
+  - catalogue: https://github.com/textologylabs/hex-marketplace # git-catalogue marketplace
 ```
 
 Each `path` is walked one level deep for templates (directories with a
 `.hex/manifest.{yaml,yml}`). Each `git` URL is cloned lazily into
 `~/.hex/cache/git/...` (override with `HEX_CACHE_DIR`) on first use,
-then walked the same way.
+then walked the same way. Each `catalogue:` URL is a git repo whose root
+carries a `marketplace.yaml` listing curated packages by namespace — see
+[`docs/marketplace-catalogue.md`](./docs/marketplace-catalogue.md).
 
 `hex list` enumerates discovered templates. `hex sources` reports cache
 + drift status per source (no network on cache hit). `hex sources
@@ -93,6 +96,26 @@ Hex 0.x bundles the **Vercel** deploy adapter and the
 [`docs/deploy.md`](./docs/deploy.md) for the full tour, and the
 `templates/vite-ts-spa` template for a working example.
 
+## Marketplaces
+
+Two ways to share templates beyond your laptop:
+
+- **Git-catalogue marketplace** (recommended for company-internal +
+  small OSS use). A git repo whose root carries a `marketplace.yaml`
+  listing curated packages by namespace. Point Hex at it with a
+  `catalogue:` source — no server to run. The
+  `templates/marketplace-catalogue` starter scaffolds one in seconds
+  with a PR-gated `hex marketplace validate` CI workflow. See
+  [`docs/marketplace-catalogue.md`](./docs/marketplace-catalogue.md).
+- **Hosted registry** (parked at M9.9 — code complete, deploy not).
+  A signed-tarball HTTP service for catalogues that grow past PR-review
+  scale or need anonymous publish. The spec, runbook, and pickup notes
+  are at [`docs/marketplace.md`](./docs/marketplace.md).
+
+Both speak the same `Catalogue` interface client-side, so a single Hex
+install can mix `catalogue:` sources and hosted-registry `marketplaces:`
+entries in the same config.
+
 ## Upgrading a generated app
 
 When your template ships a new version, `hex upgrade <new-template>`
@@ -122,4 +145,4 @@ is the matrix.
 
 ## Roadmap
 
-See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder) is shipped through M11 — render pipeline, recipes, hooks, stubbing, marketplace, lockfile, and the upgrade engine. Next is Phase 2 — deploy + CI/CD adapters.
+See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder, M1–M11) and Phase 2 (deploy + CI/CD, M12) are shipped. The git-catalogue marketplace (M13) makes Hex usable in real teams without anyone running a registry server. The hosted-registry path remains parked at M9.9 — see [`docs/marketplace.md`](./docs/marketplace.md) for the pickup notes. Next: an npm-publish + release walkthrough pass before v0.9.0.

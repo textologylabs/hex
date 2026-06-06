@@ -288,6 +288,88 @@ node dist/cli.js new templates/node-ts-cli /tmp/hex-cli-noop && \
 
 ---
 
+## 5. Git-catalogue marketplace end-to-end (M13)
+
+Cheap to exercise locally with a `file://` catalogue, but the **real**
+surface is a public GitHub catalogue + a `https://` clone — that's the
+path users actually walk and the only one that catches auth /
+case-sensitivity / proxy-config regressions.
+
+### 5.1 Local round-trip (`file://`)
+
+```sh
+# Scaffold a catalogue from the starter template
+node dist/cli.js new templates/marketplace-catalogue /tmp/hex-cat-local
+
+# Initialise it as a git repo so it has a clonable URL
+cd /tmp/hex-cat-local && git init -q -b main && \
+  git add . && git -c user.name=Test -c user.email=t@x git commit -q -m init
+
+# Point Hex at it via ~/.hex/config.yaml
+cat >> ~/.hex/config.yaml <<EOF
+sources:
+  - catalogue: file:///tmp/hex-cat-local
+EOF
+
+node dist/cli.js sources           # expect: catalogue line, namespace + 1 package
+node dist/cli.js list              # expect: the placeholder `example` row mixed in
+node dist/cli.js search example    # expect: hit from your catalogue
+```
+
+Expect each of those to surface the catalogue without errors.
+
+### 5.2 Public GitHub catalogue
+
+The seed `textologylabs/hex-marketplace` repo is the canonical fixture.
+Add it to `~/.hex/config.yaml`:
+
+```yaml
+sources:
+  - catalogue: https://github.com/textologylabs/hex-marketplace
+```
+
+Then walk:
+
+```sh
+node dist/cli.js sources refresh   # expect: clones cleanly, ✓ ok
+node dist/cli.js list              # expect: both seeded packages in the table
+node dist/cli.js new hex/vite-ts-spa /tmp/hex-cat-vite
+```
+
+Verify:
+- Catalogue clone landed in `~/.hex/cache/git/...`.
+- `/tmp/hex-cat-vite/.hex/lockfile.yaml` carries
+  `root.source.kind: catalogue` with the right `catalogue_url` +
+  `namespace` + `name`.
+- The render itself works — `cd /tmp/hex-cat-vite && npm install && npm run build`.
+
+### 5.3 Schema-validation CI gate
+
+Open a PR on `textologylabs/hex-marketplace` that breaks
+`marketplace.yaml` (e.g. add a duplicate package name, or a
+non-kebab-case namespace). Expect:
+- The `.github/workflows/validate.yml` workflow fails red with the
+  schema issues printed.
+- Merge is blocked.
+Revert the breaking change; the next push should turn the workflow
+green.
+
+> **Note: pending Hex npm publish.** The validate workflow uses
+> `npx --yes @hexology/hex@latest …`, so 5.3 only goes green once Hex
+> is published. Until then, run `node dist/cli.js marketplace validate
+> marketplace.yaml` locally as a substitute.
+
+### 5.4 Block + override policy
+
+In the seed catalogue, add a `blocks:` entry (e.g.
+`blocks: [other-ns/banned]`) and an `overrides:` entry. Push to a branch
+and add it to your config. Expect:
+- `hex list` / `hex search` never surface the blocked qualified name.
+- `hex new other-ns/banned my-app` fails with the block error.
+- A bare `hex new <override-name>` redirects to the override target.
+
+---
+
 ## Release checklist
 
 Before tagging a release:
@@ -298,6 +380,9 @@ Before tagging a release:
 - [ ] §3.1 + §3.2 on Windows.
 - [ ] §4.2 + §4.3 + §4.4 against a throwaway Vercel project + a throwaway
       GitHub repo.
+- [ ] §5.2 against `textologylabs/hex-marketplace` over `https://`.
+      §5.4 block + override against a branch you control. §5.3 once Hex
+      is on npm.
 - [ ] `npm run check` passes.
 - [ ] CHANGELOG entry for the release.
 - [ ] `prepublishOnly` script (`npm run check && npm run build`) runs
