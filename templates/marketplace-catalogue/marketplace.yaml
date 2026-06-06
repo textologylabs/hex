@@ -1,0 +1,51 @@
+# {{ namespace }} catalogue — Hex marketplace
+#
+# A catalogue is a git repo whose root carries a `marketplace.yaml`
+# listing every package the catalogue ships. Users add the catalogue to
+# their `~/.hex/config.yaml`:
+#
+#   sources:
+#     - catalogue: <this-repo-url>
+#
+# …and resolve packages by qualified name: `hex new {{ namespace }}/<pkg>@<version>`.
+
+namespace: {{ namespace }}
+{% if description %}
+description: {{ description }}
+{%- endif %}
+
+maintainers:
+  - {{ maintainer }}
+
+packages:
+  # Replace this placeholder with real packages. Each entry points at a
+  # git repo + ref (tag, branch, SHA) + optional subdirectory holding the
+  # package's `.hex/manifest.yaml`. Multiple versions per package are
+  # supported — bump the `versions:` list when you publish a new release.
+  - name: example
+    description: Placeholder package — delete this once you add a real one
+    kind: component
+    categories: [examples]
+    versions:
+      - tag: 0.1.0
+        source:
+          git: https://github.com/{{ maintainer }}/example-template
+          ref: v0.1.0
+          # path: templates/example   # uncomment if the package lives in a subdir
+
+# Optional: bare-name overrides (M9.6 policy). When a user types
+# `hex new <bare-name>` and walks marketplaces, this redirects the
+# resolution to a qualified target. Useful for opinionated company-wide
+# default picks ("when anyone in our org asks for `db-postgres`, give
+# them OUR `acme/db-postgres`").
+#
+# overrides:
+#   - name: db-postgres
+#     use: {{ namespace }}/db-postgres
+
+# Optional: cross-catalogue blocks. Qualified names this catalogue
+# refuses to surface from discovery or resolution. Useful for vetoing
+# packages from third-party catalogues your team distrusts.
+#
+# blocks:
+#   - other-namespace/banned-package
