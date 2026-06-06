@@ -4,12 +4,22 @@ import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
 import { splash } from '../brand/splash.js';
+import {
+  type CatalogueProvider,
+  loadCatalogueProviders,
+} from '../core/catalogue/catalogue-providers.js';
 import { type Checklist, checklistFromTasks, writeChecklist } from '../core/checklist/index.js';
 import { loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
 import { type TemplateEntry, discoverTemplates } from '../core/discovery/index.js';
 import { buildLockfile, writeLockfile } from '../core/lockfile/index.js';
 import type { SetupTask } from '../core/manifest/types.js';
+import { AddressError, parseAddress } from '../core/marketplace/address.js';
+import {
+  CatalogueSourceError,
+  resolveFromCatalogue,
+} from '../core/marketplace/catalogue-source.js';
+import { pickVersion } from '../core/marketplace/source.js';
 import { createClackPrompter } from '../core/prompts/clack-prompter.js';
 import { runPrompts } from '../core/prompts/engine.js';
 import { PromptCancelledError } from '../core/prompts/types.js';
@@ -309,13 +319,32 @@ async function resolveTemplate(arg: string | undefined): Promise<ComponentBundle
   for (const w of warnings) clack.log.warn(w);
 
   if (arg) {
-    const match = templates.find((t) => t.name === arg);
-    if (!match) {
-      throw new NewCommandError(
-        `no template named "${arg}" found in configured source roots — try "hex list" to see what's available, or pass a path.`,
-      );
+    // M13.4: if the arg parses as a catalogue address (`<ns>/<name>` or
+    // a bare name with an `@<version>`), try the configured catalogue
+    // sources before falling back to the discovered-templates list.
+    const parsed = tryParseCatalogueAddress(arg);
+    // A qualified (`<ns>/<name>`) address or any address with an `@`
+    // version spec is unambiguously a catalogue address — try catalogues
+    // first; a bare name (no `@`) falls through to discovery first.
+    if (parsed && (parsed.marketplace !== null || arg.includes('@'))) {
+      const fromCatalogue = await resolveTemplateFromCatalogues(config, parsed, arg);
+      if (fromCatalogue) return fromCatalogue;
     }
-    return loadFromPath(match.rootPath, match.sourceKind);
+
+    // Discovered local / git templates by bare name.
+    const match = templates.find((t) => t.name === arg);
+    if (match) return loadFromPath(match.rootPath, match.sourceKind);
+
+    // Bare name with no version spec — try catalogues as a last resort
+    // before failing.
+    if (parsed && parsed.marketplace === null) {
+      const fromCatalogue = await resolveTemplateFromCatalogues(config, parsed, arg);
+      if (fromCatalogue) return fromCatalogue;
+    }
+
+    throw new NewCommandError(
+      `no template named "${arg}" found in configured source roots or catalogues — try "hex list" to see what's available, or pass a path.`,
+    );
   }
 
   if (templates.length === 0) {
@@ -336,6 +365,142 @@ async function resolveTemplate(arg: string | undefined): Promise<ComponentBundle
 
   const choice = picked as { rootPath: string; sourceKind: 'file' | 'git' };
   return loadFromPath(choice.rootPath, choice.sourceKind);
+}
+
+/**
+ * Try parsing `arg` as a catalogue address (`<ns>/<name>(@<version>)?`
+ * or `<name>(@<version>)?`). Returns `null` if the parser rejects it —
+ * a malformed address shouldn't blow up the path / discovery fallback.
+ */
+export function tryParseCatalogueAddress(
+  arg: string,
+): { marketplace: string | null; name: string; version: string } | null {
+  try {
+    return parseAddress(arg);
+  } catch (err) {
+    if (err instanceof AddressError) return null;
+    throw err;
+  }
+}
+
+/**
+ * Test-injectable opts for `resolveTemplateFromCatalogues`. Production
+ * calls supply `clack.log.warn`; tests pass a buffer and a tmp `cacheDir`
+ * so they're hermetic.
+ */
+export type CatalogueResolveOpts = {
+  /** Forwarded to `loadCatalogueProviders` (cache root). */
+  cacheDir?: string;
+  /** Callback for non-fatal warnings (bad catalogue, broken package). */
+  warn?: (message: string) => void;
+};
+
+/**
+ * Resolve a parsed address against the configured catalogue sources.
+ *
+ * Qualified address (`<ns>/<name>`) — pin exactly the catalogue whose
+ * namespace matches; an unknown namespace throws a clear error.
+ *
+ * Bare address — walk catalogue sources in declared order; the first one
+ * whose `marketplace.yaml` lists a satisfying version of the package
+ * wins. A catalogue that fails to load contributes a warning and is
+ * skipped — one bad source must not sink resolution.
+ *
+ * Returns `null` only for the bare-name case when no catalogue lists the
+ * package; the caller falls back to a `hex list`-style hint. A qualified
+ * address with an unknown namespace or version always throws.
+ */
+export async function resolveTemplateFromCatalogues(
+  config: HexConfig,
+  parsed: { marketplace: string | null; name: string; version: string },
+  raw: string,
+  opts: CatalogueResolveOpts = {},
+): Promise<ComponentBundle | null> {
+  const warn = opts.warn ?? ((m: string) => clack.log.warn(m));
+  const providerOpts: { cacheDir?: string } = {};
+  if (opts.cacheDir !== undefined) providerOpts.cacheDir = opts.cacheDir;
+
+  const { providers, warnings: providerWarnings } = await loadCatalogueProviders(
+    config,
+    providerOpts,
+  );
+  for (const w of providerWarnings) warn(w);
+  if (providers.length === 0) return null;
+
+  const selectedProviders = selectProvidersFor(parsed, providers, raw);
+
+  for (const provider of selectedProviders) {
+    const pkg = provider.loaded.yaml.packages.find((p) => p.name === parsed.name);
+    if (!pkg) continue;
+    const availableTags = pkg.versions.map((v) => v.tag);
+    if (pickVersion(availableTags, parsed.version) === null) {
+      // Qualified address — the user pinned a catalogue that doesn't
+      // satisfy. Fail loudly so they don't waste time waiting for a
+      // bare-name fallback that won't come.
+      if (parsed.marketplace !== null) {
+        throw new NewCommandError(
+          `no version of "${provider.id}/${parsed.name}" satisfies "${parsed.version}" ` +
+            `(available: ${availableTags.join(', ')})`,
+        );
+      }
+      continue;
+    }
+    try {
+      const resolveOpts: { cacheDir?: string } = {};
+      if (opts.cacheDir !== undefined) resolveOpts.cacheDir = opts.cacheDir;
+      const result = await resolveFromCatalogue(
+        provider.loaded,
+        parsed.name,
+        parsed.version,
+        resolveOpts,
+      );
+      // Record the *configured* ref (or absence thereof) — not the
+      // resolved one, which is the literal `'HEAD'` when the user left
+      // it blank and would mislead M11 upgrade re-resolution.
+      result.bundle.catalogueSource = {
+        catalogueUrl: provider.configSource.url,
+        ...(provider.configSource.ref !== undefined
+          ? { catalogueRef: provider.configSource.ref }
+          : {}),
+        namespace: provider.id,
+        packageName: result.name,
+      };
+      return result.bundle;
+    } catch (err) {
+      if (err instanceof CatalogueSourceError && parsed.marketplace !== null) {
+        throw new NewCommandError(err.message);
+      }
+      if (err instanceof CatalogueSourceError) {
+        warn(`${provider.id}: ${err.message}`);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (parsed.marketplace !== null) {
+    throw new NewCommandError(
+      `catalogue "${parsed.marketplace}" does not list a package "${parsed.name}"`,
+    );
+  }
+  return null;
+}
+
+function selectProvidersFor(
+  parsed: { marketplace: string | null; name: string; version: string },
+  providers: CatalogueProvider[],
+  raw: string,
+): CatalogueProvider[] {
+  if (parsed.marketplace === null) return providers;
+  const match = providers.find((p) => p.id === parsed.marketplace);
+  if (!match) {
+    const configured = providers.map((p) => p.id).join(', ') || '(none)';
+    throw new NewCommandError(
+      `catalogue namespace "${parsed.marketplace}" in "${raw}" is not configured ` +
+        `(configured catalogues: ${configured})`,
+    );
+  }
+  return [match];
 }
 
 function hintFor(t: TemplateEntry): string {

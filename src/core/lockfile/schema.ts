@@ -52,10 +52,32 @@ const marketplaceSourceSpecSchema = z.object({
   name: z.string().min(1),
 });
 
+/**
+ * Catalogue source (M13.4) — the artifact was resolved through a
+ * git-catalogue. `catalogue_url` (+ optional `catalogue_ref`) reaches the
+ * `marketplace.yaml` host; `namespace` + `name` pick the package inside
+ * it. The underlying package's git coordinate is *not* recorded — it
+ * lives in `marketplace.yaml` and is re-read at upgrade time, which keeps
+ * the catalogue free to retarget a package's source without forcing every
+ * generated app to re-lock.
+ */
+const catalogueSourceSpecSchema = z.object({
+  kind: z.literal('catalogue'),
+  /** Git URL of the catalogue repo (the `marketplace.yaml` host). */
+  catalogue_url: z.string().min(1),
+  /** Optional ref of the catalogue repo (branch / tag / SHA). */
+  catalogue_ref: z.string().min(1).optional(),
+  /** Catalogue namespace (the qualifier in `<namespace>/<name>`). */
+  namespace: z.string().min(1),
+  /** Package name within the catalogue. */
+  name: z.string().min(1),
+});
+
 export const sourceSpecSchema = z.discriminatedUnion('kind', [
   fileSourceSpecSchema,
   gitSourceSpecSchema,
   marketplaceSourceSpecSchema,
+  catalogueSourceSpecSchema,
 ]);
 
 /** Identity of one scaffolding artifact — the recipe root or a child. */

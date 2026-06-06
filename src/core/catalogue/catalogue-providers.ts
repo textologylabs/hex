@@ -34,6 +34,13 @@ export type CatalogueProvider = {
   loaded: LoadedCatalogue;
   /** User-facing display label (`<url>` or `<url>@<ref>`). */
   display: string;
+  /**
+   * The original config source for this catalogue — `loaded.source.ref`
+   * is the *resolved* ref (literal `'HEAD'` when none was specified, per
+   * `resolveGitSource`), so consumers that need the user's intent (e.g.
+   * the M13.4 lockfile spec) should read from here instead.
+   */
+  configSource: { url: string; ref?: string };
 };
 
 export type LoadCatalogueProvidersOpts = {
@@ -74,6 +81,7 @@ export async function loadCatalogueProviders(
         catalogue: createCatalogueFromYaml(loaded),
         loaded,
         display,
+        configSource: entry,
       });
     } catch (err) {
       warnings.push(`catalogue ${display}: ${err instanceof Error ? err.message : String(err)}`);
