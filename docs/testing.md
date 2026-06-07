@@ -370,7 +370,66 @@ and add it to your config. Expect:
 
 ---
 
-## Release checklist
+## Release runbook
+
+Releases are tag-triggered (M14.2). The actual publish happens in
+`.github/workflows/release.yml`; this section is the one-time setup +
+the per-release procedure.
+
+### One-time setup
+
+1. **Mint an npm automation token.** Go to
+   `https://www.npmjs.com/settings/<your-user>/tokens` → "Generate New
+   Token" → **Automation** type (CI-safe, bypasses 2FA on publish).
+   Copy the `npm_…` string once — npm doesn't show it again.
+
+2. **Add it as a repo secret.**
+   ```sh
+   gh secret set NPM_TOKEN -R textologylabs/hex
+   # paste the token when prompted
+   ```
+   `GITHUB_TOKEN` is provided automatically by Actions — no action
+   needed for the gh-release step.
+
+3. **Verify the workflow file.** `.github/workflows/release.yml` runs
+   on `push` to a `v*.*.*` tag: lint + typecheck + tests → build →
+   `tag-matches-package.json-version` guard → `npm publish --access
+   public` → `gh release create` with notes lifted from the matching
+   `## [<version>]` CHANGELOG section.
+
+### Per-release procedure
+
+After walking the test matrix above:
+
+1. **Bump version.** Edit `package.json` (and `src/brand/splash.ts`
+   `VERSION` if it's drifted), commit on `main` with a `release: vX.Y.Z`
+   message.
+
+2. **Move CHANGELOG entries.** Take every bullet currently under
+   `## [Unreleased]` and put them under a new `## [X.Y.Z] — YYYY-MM-DD`
+   heading. Add a 2–3 paragraph headline summarising the release.
+   Commit on `main`.
+
+3. **Tag + push.**
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+4. **Watch the workflow.** `gh run watch -R textologylabs/hex` should
+   show the release run go green in ~3–5 minutes. On failure, the tag
+   stays (the action ran but the publish or release-create step
+   failed) — fix forward and re-push the tag with `git tag -f` if
+   necessary, or cut a patch release.
+
+5. **Smoke the published package.** From a clean tmpdir:
+   ```sh
+   npx --yes @hexology/hex@X.Y.Z --version
+   ```
+   Expect `X.Y.Z`. If `npx` reports "404 Not Found", npm's CDN is still
+   propagating — wait a minute and retry.
+
+### Release checklist
 
 Before tagging a release:
 
@@ -384,9 +443,9 @@ Before tagging a release:
       §5.4 block + override against a branch you control. §5.3 once Hex
       is on npm.
 - [ ] `npm run check` passes.
-- [ ] CHANGELOG entry for the release.
-- [ ] `prepublishOnly` script (`npm run check && npm run build`) runs
-      automatically on `npm publish` and gates the tarball.
+- [ ] CHANGELOG entry moved from `[Unreleased]` to `[X.Y.Z]` with date.
+- [ ] `package.json` version bumped + committed.
+- [ ] `NPM_TOKEN` secret is set on the repo (one-time, see above).
 
 This page is the contract for that walk. If you skip a step, write it
 down here as a known gap rather than letting it rot in your head.

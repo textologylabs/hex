@@ -1,0 +1,85 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# A pushed semver tag (`v0.9.0`) triggers a clean check + build + npm
+# publish + GitHub Release. The job is hermetic: no caching, no
+# dependency on prior runs, no reuse of dist/ from the developer's
+# laptop. The same prepublishOnly hook gates here as it does for a local
+# `npm publish`, so a failing test or stale build can never reach npm.
+#
+# Required secret: NPM_TOKEN — a "Automation" token from
+# https://www.npmjs.com/settings/<your-user>/tokens. Add via:
+#   gh secret set NPM_TOKEN -R textologylabs/hex
+# GITHUB_TOKEN is set automatically by Actions for the gh-release step.
+
+permissions:
+  contents: write  # gh release create
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so the release notes job can read CHANGELOG.md.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint + typecheck + test
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+          echo "Releasing version $PKG_VERSION"
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          # Pull the section between `## [<version>]` and the next `## [`.
+          # The trailing `head -n -1` drops the next-section heading.
+          awk -v ver="$TAG_VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "## ${GITHUB_REF_NAME}" > /tmp/release-notes.md
+            echo "" >> /tmp/release-notes.md
+            echo "See CHANGELOG.md for details." >> /tmp/release-notes.md
+          fi
+          echo "Release notes:"
+          cat /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file /tmp/release-notes.md
