@@ -10,6 +10,7 @@ import {
   loadCatalogueProviders,
   searchCatalogueProviders,
 } from '../core/catalogue/catalogue-providers.js';
+import { browseLocalCatalogue, searchLocalCatalogue } from '../core/catalogue/local-catalogue.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
 import type { MarketplaceConfig } from '../core/marketplace/address.js';
@@ -75,8 +76,9 @@ export type BrowseAllOpts = {
 };
 
 /**
- * Category tally across every configured marketplace AND every
- * `catalogue:` source (M13.3). Counts union over both surfaces.
+ * Category tally across every configured marketplace, every
+ * `catalogue:` source (M13.3) AND every `path:` / `git:` source root
+ * (M14.9). Counts union over all three surfaces.
  */
 export async function listAllCategories(
   config: HexConfig,
@@ -96,8 +98,15 @@ export async function listAllCategories(
     '',
   );
 
+  const localDiscoveryOpts = opts.cacheDir !== undefined ? { cacheDir: opts.cacheDir } : {};
+  const { entries: localEntries, warnings: localWarnings } = await searchLocalCatalogue(
+    config,
+    '',
+    localDiscoveryOpts,
+  );
+
   const counts = new Map<string, number>(mktResult.categories.map((c) => [c.name, c.count]));
-  for (const entry of catEntries) {
+  for (const entry of [...catEntries, ...localEntries]) {
     for (const category of entry.categories) {
       counts.set(category, (counts.get(category) ?? 0) + 1);
     }
@@ -108,14 +117,15 @@ export async function listAllCategories(
 
   return {
     categories,
-    warnings: [...mktResult.warnings, ...providerWarnings, ...searchWarnings],
+    warnings: [...mktResult.warnings, ...providerWarnings, ...searchWarnings, ...localWarnings],
   };
 }
 
 /**
- * Browse one category across every configured marketplace AND every
- * `catalogue:` source (M13.3). Marketplace entries come first to
- * preserve existing CLI ordering.
+ * Browse one category across every configured marketplace, every
+ * `catalogue:` source (M13.3) AND every `path:` / `git:` source root
+ * (M14.9). Marketplace entries come first to preserve existing CLI
+ * ordering; catalogue and local entries follow.
  */
 export async function browseCategoryAllSources(
   config: HexConfig,
@@ -136,10 +146,17 @@ export async function browseCategoryAllSources(
     category,
   );
 
+  const localDiscoveryOpts = opts.cacheDir !== undefined ? { cacheDir: opts.cacheDir } : {};
+  const { entries: localEntries, warnings: localWarnings } = await browseLocalCatalogue(
+    config,
+    category,
+    localDiscoveryOpts,
+  );
+
   return {
     category,
-    results: [...mktResult.results, ...catEntries],
-    warnings: [...mktResult.warnings, ...providerWarnings, ...browseWarnings],
+    results: [...mktResult.results, ...catEntries, ...localEntries],
+    warnings: [...mktResult.warnings, ...providerWarnings, ...browseWarnings, ...localWarnings],
   };
 }
 
@@ -168,19 +185,19 @@ export function registerBrowse(program: Command): void {
     .action(async (category: string | undefined, opts: { json: boolean }) => {
       const config = await loadConfig();
       const marketplaces = config.marketplaces ?? [];
-      const hasCatalogueSources = config.sources.some((s) => s.kind === 'catalogue');
 
-      if (marketplaces.length === 0 && !hasCatalogueSources) {
+      if (marketplaces.length === 0 && config.sources.length === 0) {
         if (opts.json) {
           process.stdout.write(`${JSON.stringify({ categories: [], warnings: [] }, null, 2)}\n`);
           return;
         }
         const configPath = getDefaultConfigPath();
         const example =
-          '  sources:\n    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
+          '  sources:\n    - path: ~/dev/hex-templates\n' +
+          '    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
           '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
         process.stdout.write(
-          `${brand.dim('No marketplaces or catalogue sources configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
+          `${brand.dim('No sources or marketplaces configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
         );
         return;
       }

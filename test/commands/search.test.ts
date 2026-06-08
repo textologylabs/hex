@@ -216,6 +216,53 @@ describe('searchAllSources (M13.3)', () => {
   });
 });
 
+describe('searchAllSources — local filesystem sources (M14.9)', () => {
+  it('returns hits from a path: source root even with no marketplaces/catalogues', async () => {
+    const root = join(work, 'templates');
+    await mkdir(join(root, 'node-ts-cli', '.hex'), { recursive: true });
+    await writeFile(
+      join(root, 'node-ts-cli', '.hex', 'manifest.yaml'),
+      'type: component\nname: node-ts-cli\nversion: 0.2.0\nkind: cli\n',
+      'utf8',
+    );
+
+    const config: HexConfig = {
+      sources: [{ kind: 'path', path: root }],
+      marketplaces: [],
+    };
+    const { results, warnings } = await searchAllSources(config, 'cli', {
+      cacheDir: join(work, 'cache'),
+    });
+
+    expect(warnings).toEqual([]);
+    expect(results.map((e) => `${e.marketplace}/${e.name}`)).toEqual(['local/node-ts-cli']);
+  });
+
+  it('unions local hits with marketplace hits (marketplace first)', async () => {
+    const root = join(work, 'templates');
+    await mkdir(join(root, 'node-ts-cli', '.hex'), { recursive: true });
+    await writeFile(
+      join(root, 'node-ts-cli', '.hex', 'manifest.yaml'),
+      'type: component\nname: node-ts-cli\nversion: 0.2.0\nkind: cli\n',
+      'utf8',
+    );
+    const hex = await buildRegistry('hex', [
+      { name: 'api-cli-helper', type: 'component', latest: '1.0.0' },
+    ]);
+
+    const config: HexConfig = {
+      sources: [{ kind: 'path', path: root }],
+      marketplaces: [{ id: 'hex', registry: hex }],
+    };
+    const { results } = await searchAllSources(config, 'cli', { cacheDir: join(work, 'cache') });
+
+    expect(results.map((e) => `${e.marketplace}/${e.name}`)).toEqual([
+      'hex/api-cli-helper',
+      'local/node-ts-cli',
+    ]);
+  });
+});
+
 describe('formatSearchTable', () => {
   it('renders qualified-name@version rows with descriptions', () => {
     const out = formatSearchTable([
