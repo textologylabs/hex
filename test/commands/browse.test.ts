@@ -229,6 +229,61 @@ describe('browseCategoryAllSources (M13.3)', () => {
   });
 });
 
+describe('listAllCategories / browseCategoryAllSources — local filesystem (M14.9)', () => {
+  it('lists categories drawn from local path: sources', async () => {
+    const root = join(work, 'templates');
+    await mkdir(join(root, 'api-express', '.hex'), { recursive: true });
+    await writeFile(
+      join(root, 'api-express', '.hex', 'manifest.yaml'),
+      'type: component\nname: api-express\nversion: 1.0.0\nkind: api\n',
+      'utf8',
+    );
+    await mkdir(join(root, 'node-ts-cli', '.hex'), { recursive: true });
+    await writeFile(
+      join(root, 'node-ts-cli', '.hex', 'manifest.yaml'),
+      'type: component\nname: node-ts-cli\nversion: 1.0.0\nkind: cli\n',
+      'utf8',
+    );
+
+    const config: HexConfig = {
+      sources: [{ kind: 'path', path: root }],
+      marketplaces: [],
+    };
+    const { categories, warnings } = await listAllCategories(config, {
+      cacheDir: join(work, 'cache'),
+    });
+
+    expect(warnings).toEqual([]);
+    expect(categories.map((c) => c.name)).toEqual(['api', 'cli']);
+    expect(categories.map((c) => c.count)).toEqual([1, 1]);
+  });
+
+  it('browses one category across local + marketplace, marketplace first', async () => {
+    const root = join(work, 'templates');
+    await mkdir(join(root, 'api-fastify', '.hex'), { recursive: true });
+    await writeFile(
+      join(root, 'api-fastify', '.hex', 'manifest.yaml'),
+      'type: component\nname: api-fastify\nversion: 1.0.0\nkind: api\n',
+      'utf8',
+    );
+    const hex = await buildRegistry('hex', [
+      { name: 'api-express', type: 'component', latest: '2.0.0', categories: ['api'] },
+    ]);
+
+    const config: HexConfig = {
+      sources: [{ kind: 'path', path: root }],
+      marketplaces: [{ id: 'hex', registry: hex }],
+    };
+    const { results } = await browseCategoryAllSources(config, 'api', {
+      cacheDir: join(work, 'cache'),
+    });
+    expect(results.map((e) => `${e.marketplace}/${e.name}`)).toEqual([
+      'hex/api-express',
+      'local/api-fastify',
+    ]);
+  });
+});
+
 describe('formatCategories', () => {
   it('renders name + count rows', () => {
     const out = formatCategories([

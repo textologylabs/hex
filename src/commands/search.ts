@@ -8,6 +8,7 @@ import {
   loadCatalogueProviders,
   searchCatalogueProviders,
 } from '../core/catalogue/catalogue-providers.js';
+import { searchLocalCatalogue } from '../core/catalogue/local-catalogue.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
 import type { MarketplaceConfig } from '../core/marketplace/address.js';
@@ -40,11 +41,13 @@ export async function searchMarketplaces(
 
 /**
  * Search every configured marketplace AND every `catalogue:` source
- * (M13.3). Marketplace hits and catalogue hits are unioned into a single
- * `AggregateCatalogueEntry[]`, each tagged with its originating namespace
- * — so a name clash across surfaces appears as two distinct qualified
- * entries rather than one shadowing the other. Marketplace results come
- * first to preserve the existing CLI ordering.
+ * (M13.3) AND every `path:` / `git:` source root (M14.9). Hits across
+ * surfaces are unioned into a single `AggregateCatalogueEntry[]`, each
+ * tagged with its originating marketplace — so a name clash across
+ * surfaces appears as two distinct qualified entries rather than one
+ * shadowing the other. Local filesystem hits carry the synthetic
+ * `local` marketplace id. Marketplace results come first to preserve
+ * the existing CLI ordering; catalogue and local results follow.
  */
 export type SearchAllOpts = {
   /** Forwarded to `loadCatalogueProviders` (test injection). */
@@ -73,9 +76,16 @@ export async function searchAllSources(
     query,
   );
 
+  const localDiscoveryOpts = opts.cacheDir !== undefined ? { cacheDir: opts.cacheDir } : {};
+  const { entries: localEntries, warnings: localWarnings } = await searchLocalCatalogue(
+    config,
+    query,
+    localDiscoveryOpts,
+  );
+
   return {
-    results: [...mktResults, ...catEntries],
-    warnings: [...mktWarnings, ...providerWarnings, ...catSearchWarnings],
+    results: [...mktResults, ...catEntries, ...localEntries],
+    warnings: [...mktWarnings, ...providerWarnings, ...catSearchWarnings, ...localWarnings],
   };
 }
 
@@ -114,19 +124,19 @@ export function registerSearch(program: Command): void {
     .action(async (query: string, opts: { json: boolean }) => {
       const config = await loadConfig();
       const marketplaces = config.marketplaces ?? [];
-      const hasCatalogueSources = config.sources.some((s) => s.kind === 'catalogue');
 
-      if (marketplaces.length === 0 && !hasCatalogueSources) {
+      if (marketplaces.length === 0 && config.sources.length === 0) {
         if (opts.json) {
           process.stdout.write(`${JSON.stringify({ results: [], warnings: [] }, null, 2)}\n`);
           return;
         }
         const configPath = getDefaultConfigPath();
         const example =
-          '  sources:\n    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
+          '  sources:\n    - path: ~/dev/hex-templates\n' +
+          '    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
           '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
         process.stdout.write(
-          `${brand.dim('No marketplaces or catalogue sources configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
+          `${brand.dim('No sources or marketplaces configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
         );
         return;
       }
