@@ -150,14 +150,34 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:[-+].*)?$/;
 
 export const TASK_ID_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
-export const setupTaskSchema = z.object({
-  id: z
-    .string()
-    .min(1)
-    .regex(TASK_ID_RE, 'task id must be kebab-case ([a-z0-9-], no leading/trailing dash)'),
-  title: z.string().min(1),
-  detail: z.string().optional(),
-});
+/**
+ * Three-action setup task (M14.7). Every task MUST declare at least one
+ * action — `run`, `open`, or `detail` — so a template can no longer
+ * surface an empty manual-instruction step.
+ *
+ *   run     — a shell command Hex will execute via spawn(stdio:'inherit'),
+ *             allowlisted to a fixed set of binaries for non-FileSource
+ *             templates (`--trust-local` lifts the gate for local ones).
+ *   open    — a URL Hex will hand to the OS browser. If `run` is also
+ *             present, `open` fires FIRST (so a vercel-link-then-grab-a-
+ *             dashboard-url task reads top-to-bottom).
+ *   detail  — fallback: prose the user must follow manually. Should be
+ *             rare — prefer `run` / `open`.
+ */
+export const setupTaskSchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .regex(TASK_ID_RE, 'task id must be kebab-case ([a-z0-9-], no leading/trailing dash)'),
+    title: z.string().min(1),
+    run: z.string().min(1).optional(),
+    open: z.string().min(1).optional(),
+    detail: z.string().optional(),
+  })
+  .refine((t) => t.run !== undefined || t.open !== undefined || t.detail !== undefined, {
+    message: 'setup task must declare at least one of `run`, `open`, or `detail`',
+  });
 
 export const setupSchema = z.object({
   message: z.string().min(1).optional(),

@@ -67,28 +67,38 @@ setup:
   tasks:
     - id: install-deps
       title: Install dependencies
-      detail: |
-        cd into the project and run:
-          npm install
+      run: npm install
     - id: git-init
-      title: Initialise git and connect a remote
+      title: Initialise a git repository
+      run: git init -b main
+    - id: git-stage
+      title: Stage every scaffolded file
+      run: git add .
+    - id: git-commit-initial
+      title: Make the initial commit
+      run: git commit -m "initial commit"
+    - id: configure-git-remote
+      title: Connect the repo to GitHub
       detail: |
-        git init -b main
-        git add .
-        git commit -m "initial commit"
-        git remote add origin <your-github-url>
-        git push -u origin main
+        Create a new repo on GitHub, then connect + push from your project root:
+          git remote add origin <your-github-url>
+          git push -u origin main
+    - id: open-npm-tokens
+      title: Open the npm tokens page to mint an automation token
+      open: https://www.npmjs.com/
+      detail: |
+        Sign in, head to Access Tokens → Generate New Token → Automation.
+        (Skip if you opted out of the publish workflow.)
     - id: set-npm-token
-      title: Set NPM_TOKEN secret on the GitHub repo
+      title: Save the token as a GitHub repo secret
+      run: gh secret set NPM_TOKEN
       detail: |
-        Generate an automation token at https://www.npmjs.com/settings/<you>/tokens
-        Then add it as a repo secret:
-          gh secret set NPM_TOKEN
-        (Skip this task if you opted out of the publish workflow.)
+        Pastes your NPM_TOKEN into the repo's Actions secrets.
+        (Skip if you opted out of the publish workflow.)
     - id: first-release
-      title: Tag and push your first release
+      title: Tag + push the first release
       detail: |
-        npm version 0.1.0
-        git push --follow-tags
+        Bump the version (e.g. `npm version 0.1.0`), then push the tag:
+          git push --follow-tags
         The publish workflow will build and push the package to npm.
         (Skip if you opted out of the publish workflow.)

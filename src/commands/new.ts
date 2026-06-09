@@ -29,8 +29,18 @@ import { type RenderRecipeResult, renderRecipe } from '../core/recipe/render.js'
 import { type ResolvedRecipe, resolveRecipe } from '../core/recipe/resolve.js';
 import { aggregateRecipeSetup } from '../core/recipe/setup.js';
 import { renderBundle } from '../core/render/engine.js';
+import {
+  type ExecutorPassResult,
+  countActionableTasks,
+  runExecutorPass,
+} from '../core/setup/executor-pass.js';
+import {
+  SetupExecutorError,
+  type TaskRunOutcome,
+  validateSetupTasksAllowlist,
+} from '../core/setup/run.js';
 import { type ComponentBundle, loadFromPath } from '../core/sources/file-source.js';
-import { printSetupOutro, runSetupSession } from './setup.js';
+import { makeInteractiveRunner, printSetupOutro, runSetupSession } from './setup.js';
 
 export class NewCommandError extends Error {
   constructor(message: string) {
@@ -246,6 +256,25 @@ export function registerNew(program: Command): void {
           clack.note(plan.setupMessage, 'Post-scaffold setup');
         }
 
+        // M14.7: validate `run:` commands before any execution path can fire.
+        // Each bundle in the tree is checked against ITS OWN sourceKind: a
+        // FileSource recipe composing a git component still subjects the
+        // git child's `run:` declarations to strict allowlist, even when
+        // the user passed `--trust-local`. The root's `--trust-local`
+        // gate lifts only for FileSource bundles.
+        try {
+          validateBundleAllowlistRecursive(bundle, ctx.resolved, opts.trustLocal);
+        } catch (err) {
+          if (err instanceof SetupExecutorError) {
+            clack.log.error(err.message);
+            clack.outro(
+              `setup task allowlist violation — files written but no commands will run. Inspect ${outputDir} or pass --trust-local for local templates.`,
+            );
+            return;
+          }
+          throw err;
+        }
+
         if (!plan.interactive) {
           clack.outro(
             `${plan.pendingCount} setup tasks pending — run ${brand.bold('hex setup')} from ${outputDir}`,
@@ -253,9 +282,15 @@ export function registerNew(program: Command): void {
           return;
         }
 
+        // M14.7: offer to auto-execute every actionable (`run:`/`open:`)
+        // pending task. Successful runs are marked done atomically; failures
+        // stay pending and drop into the interactive loop below.
+        const afterPass = await maybeAutoExecutePass(outputDir, plan.initial);
+
         const setupResult = await runSetupSession(
-          { rootDir: outputDir, checklist: plan.initial },
+          { rootDir: outputDir, checklist: afterPass },
           createClackPrompter(),
+          { runTask: makeInteractiveRunner(outputDir) },
         );
         printSetupOutro(setupResult);
       },
@@ -294,6 +329,74 @@ export function planPostRender(
     pendingCount: result.tasks.length,
     ...(result.setupMessage !== undefined ? { setupMessage: result.setupMessage } : {}),
   };
+}
+
+/**
+ * M14.7: offer to auto-execute every pending actionable task, then
+ * return the resulting checklist. The interactive setup loop picks up
+ * whatever is still pending. When nothing is actionable, or the user
+ * declines the confirm prompt, the input checklist returns unchanged.
+ *
+ * Each task prints its declared action before running so the user
+ * knows which command produced any spawned output the prompt is about
+ * to occlude.
+ */
+async function maybeAutoExecutePass(outputDir: string, initial: Checklist): Promise<Checklist> {
+  const count = countActionableTasks(initial);
+  if (count === 0) return initial;
+
+  const confirm = await clack.confirm({
+    message: `Run ${count} setup task${count === 1 ? '' : 's'} now?`,
+    initialValue: true,
+  });
+  if (typeof confirm !== 'boolean' || !confirm) return initial;
+
+  const result: ExecutorPassResult = await runExecutorPass(initial, {
+    cwd: outputDir,
+    onTaskStart: (task) => {
+      const action = task.open !== undefined ? `open ${task.open}` : `run ${task.run}`;
+      clack.log.step(`${task.title} — ${action}`);
+    },
+    onTaskComplete: (report) => {
+      if (report.markedDone) {
+        clack.log.success(`✓ ${report.task.title}`);
+        return;
+      }
+      const reason = describeFailure(report.outcome);
+      clack.log.error(`✗ ${report.task.title}${reason ? ` — ${reason}` : ''}`);
+    },
+  });
+  return result.checklist;
+}
+
+function describeFailure(outcome: TaskRunOutcome): string {
+  if (outcome.kind === 'spawn-error') return outcome.message;
+  if (outcome.kind === 'ran' || outcome.kind === 'opened-and-ran')
+    return `exited ${outcome.exitCode}`;
+  return '';
+}
+
+/**
+ * Walk a bundle (and its resolved recipe tree, when present) and
+ * validate every level's `run:` declarations against the appropriate
+ * allowlist gate. Each level uses ITS OWN `sourceKind`, so a recipe
+ * mixing local + git children correctly applies strict allowlist to
+ * the git children even under `--trust-local`.
+ */
+function validateBundleAllowlistRecursive(
+  bundle: ComponentBundle,
+  resolved: ResolvedRecipe | undefined,
+  trustLocal: boolean,
+): void {
+  validateSetupTasksAllowlist(bundle.manifest.setup?.tasks ?? [], {
+    sourceKind: bundle.sourceKind,
+    trustLocal,
+  });
+  if (resolved) {
+    for (const child of resolved.children.values()) {
+      validateBundleAllowlistRecursive(child.bundle, child.resolved, trustLocal);
+    }
+  }
 }
 
 function looksLikePath(arg: string): boolean {

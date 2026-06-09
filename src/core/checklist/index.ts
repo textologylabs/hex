@@ -10,6 +10,11 @@ export type TaskStatus = 'pending' | 'done';
 export type ChecklistTask = {
   id: string;
   title: string;
+  /** Shell command Hex executes via spawn (allowlisted for non-local templates). */
+  run?: string;
+  /** URL Hex opens in the user's browser. */
+  open?: string;
+  /** Fallback prose for the rare case neither `run` nor `open` fits. */
   detail?: string;
   status: TaskStatus;
 };
@@ -52,6 +57,8 @@ export function checklistFromTasks(tasks: SetupTask[]): Checklist {
     tasks: tasks.map((t) => ({
       id: t.id,
       title: t.title,
+      ...(t.run !== undefined ? { run: t.run } : {}),
+      ...(t.open !== undefined ? { open: t.open } : {}),
       ...(t.detail !== undefined ? { detail: t.detail } : {}),
       status: 'pending' as const,
     })),

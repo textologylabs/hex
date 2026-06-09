@@ -148,9 +148,13 @@ describe('node-ts-cli template — end-to-end', () => {
     // (not renderBundle). What we can assert here: the manifest exposes
     // the tasks for downstream tooling.
     expect(bundle.manifest.setup?.tasks?.map((t) => t.id).sort()).toEqual([
+      'configure-git-remote',
       'first-release',
+      'git-commit-initial',
       'git-init',
+      'git-stage',
       'install-deps',
+      'open-npm-tokens',
       'set-npm-token',
     ]);
   });
@@ -256,9 +260,13 @@ describe('node-ts-cli template — end-to-end', () => {
     expect(loaded).not.toBeNull();
     expect(loaded?.rootDir).toBe(out);
     expect(loaded?.checklist.tasks.map((t) => t.id).sort()).toEqual([
+      'configure-git-remote',
       'first-release',
+      'git-commit-initial',
       'git-init',
+      'git-stage',
       'install-deps',
+      'open-npm-tokens',
       'set-npm-token',
     ]);
     expect(loaded?.checklist.tasks.every((t) => t.status === 'pending')).toBe(true);

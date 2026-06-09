@@ -53,6 +53,7 @@ setup:
   tasks:
     - id: install-deps
       title: Install workspace deps
+      run: npm install
 `,
     );
     await writeManifest(
@@ -67,6 +68,7 @@ setup:
       detail: cp .env.example .env
     - id: db-migrate
       title: Run initial DB migration
+      detail: ./scripts/migrate.sh
 `,
     );
     await writeManifest(
@@ -81,9 +83,9 @@ version: 0.1.0
     const tasks = aggregateRecipeSetup(resolved);
 
     expect(tasks).toEqual([
-      { id: 'install-deps', title: 'Install workspace deps' },
+      { id: 'install-deps', title: 'Install workspace deps', run: 'npm install' },
       { id: 'api-env-file', title: 'Create .env from example', detail: 'cp .env.example .env' },
-      { id: 'api-db-migrate', title: 'Run initial DB migration' },
+      { id: 'api-db-migrate', title: 'Run initial DB migration', detail: './scripts/migrate.sh' },
     ]);
   });
 
@@ -102,6 +104,7 @@ setup:
   tasks:
     - id: outer-task
       title: Outer task
+      detail: outer
 `,
     );
     await writeManifest(
@@ -115,6 +118,7 @@ setup:
   tasks:
     - id: inner-task
       title: Inner task
+      detail: inner
 `,
     );
     await writeManifest(
@@ -126,6 +130,7 @@ setup:
   tasks:
     - id: leaf-task
       title: Leaf task
+      detail: leaf
 `,
     );
     const bundle = await loadFromPath(outerRoot);
@@ -157,6 +162,7 @@ setup:
   tasks:
     - id: r1
       title: r1
+      detail: r1
 `,
     );
     await writeManifest(
@@ -168,8 +174,10 @@ setup:
   tasks:
     - id: t1
       title: t1
+      detail: t1
     - id: t2
       title: t2
+      detail: t2
 `,
     );
     await writeManifest(
@@ -181,6 +189,7 @@ setup:
   tasks:
     - id: t1
       title: t1
+      detail: t1
 `,
     );
     const bundle = await loadFromPath(recipeRoot);

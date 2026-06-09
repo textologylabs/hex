@@ -161,9 +161,13 @@ describe('vite-ts-spa template — end-to-end', () => {
     const bundle = await loadFromPath(TEMPLATE_PATH);
     const ids = bundle.manifest.setup?.tasks?.map((t) => t.id).sort();
     expect(ids).toEqual([
+      'configure-git-remote',
       'first-deploy',
+      'git-commit-initial',
       'git-init',
+      'git-stage',
       'install-deps',
+      'open-vercel-tokens',
       'set-vercel-token',
       'vercel-link',
     ]);

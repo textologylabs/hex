@@ -101,6 +101,11 @@ export type Section = {
 export type SetupTask = {
   id: string;
   title: string;
+  /** Shell command Hex executes via spawn (allowlisted for non-local templates). */
+  run?: string;
+  /** URL Hex opens in the user's browser. */
+  open?: string;
+  /** Fallback prose for the rare case neither `run` nor `open` fits. */
   detail?: string;
 };
 
