@@ -210,8 +210,9 @@ to be exercised against real services before a release.
 
 ### 4.1 Pre-reqs
 
-- A throwaway Vercel project (don't reuse a production one).
-  `vercel link` it locally if you haven't.
+- A throwaway Vercel project (don't reuse a production one). The
+  scaffold's `vercel-link` setup task runs `npx --yes vercel link`
+  for you — no global `npm i -g vercel` required.
 - A throwaway GitHub repo with `VERCEL_TOKEN` set as a secret:
   ```sh
   gh secret set VERCEL_TOKEN

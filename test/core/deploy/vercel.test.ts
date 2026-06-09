@@ -101,7 +101,7 @@ describe('createVercelAdapter', () => {
     expect(capture).toEqual([]);
   });
 
-  it('invokes vercel deploy --yes --token <T> from appRoot and returns the URL', async () => {
+  it('invokes npx --yes vercel deploy --yes --token <T> from appRoot and returns the URL (M14.10)', async () => {
     const capture: Call[] = [];
     const adapter = createVercelAdapter({
       runner: scriptedRunner(
@@ -116,8 +116,11 @@ describe('createVercelAdapter', () => {
     });
 
     expect(capture).toHaveLength(1);
-    expect(capture[0]?.command).toBe('vercel');
-    expect(capture[0]?.args).toEqual(['deploy', '--yes', '--token', 't-123']);
+    // M14.10: invoke via `npx --yes vercel …` so users don't need a
+    // global `npm i -g vercel` first. The trailing `--yes` on the
+    // vercel sub-command keeps suppressing vercel's own link prompt.
+    expect(capture[0]?.command).toBe('npx');
+    expect(capture[0]?.args).toEqual(['--yes', 'vercel', 'deploy', '--yes', '--token', 't-123']);
     expect(capture[0]?.cwd).toBe('/tmp/app');
     expect(result.url).toBe('https://my-app-abc.vercel.app');
     expect(result.logs).toContain('Preview:');
@@ -136,7 +139,15 @@ describe('createVercelAdapter', () => {
       config: { adapter: 'vercel', prod: true },
       env: { VERCEL_TOKEN: 't' },
     });
-    expect(capture[0]?.args).toEqual(['deploy', '--yes', '--token', 't', '--prod']);
+    expect(capture[0]?.args).toEqual([
+      '--yes',
+      'vercel',
+      'deploy',
+      '--yes',
+      '--token',
+      't',
+      '--prod',
+    ]);
   });
 
   it('omits --prod by default', async () => {
