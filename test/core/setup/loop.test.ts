@@ -168,4 +168,97 @@ describe('runSetupLoop', () => {
     await runSetupLoop(initial, prompter);
     expect(notes[0]?.body).toContain('[✓]');
   });
+
+  it('renders run: and open: lines in the task note for actionable tasks', async () => {
+    const initial = checklistFromTasks([
+      { id: 'a', title: 'Install', run: 'npm install', detail: 'manual fallback' },
+      { id: 'b', title: 'Dashboard', open: 'https://example.test/' },
+    ]);
+    const { prompter, notes } = scriptedPrompter(['Skip for now', 'Skip for now']);
+
+    await runSetupLoop(initial, prompter);
+
+    expect(notes[0]?.body).toContain('run:');
+    expect(notes[0]?.body).toContain('npm install');
+    expect(notes[0]?.body).toContain('manual fallback');
+    expect(notes[1]?.body).toContain('open:');
+    expect(notes[1]?.body).toContain('https://example.test/');
+  });
+
+  describe('with runTask (M14.7)', () => {
+    it('offers "Run now" for actionable pending tasks when a runner is supplied', async () => {
+      const initial = checklistFromTasks([{ id: 'a', title: 'A', run: 'npm install' }]);
+      const { prompter, selectCalls } = scriptedPrompter(['Run now']);
+      const runTask = async () => ({ kind: 'ran' as const, exitCode: 0 });
+
+      const result = await runSetupLoop(initial, prompter, { runTask });
+
+      expect(selectCalls[0]?.choices[0]).toBe('Run now');
+      expect(result.checklist.tasks[0]?.status).toBe('done');
+      expect(result.steps[0]?.action).toBe('ran-succeeded');
+    });
+
+    it('offers "Open in browser" for open:-only tasks', async () => {
+      const initial = checklistFromTasks([{ id: 'a', title: 'A', open: 'https://example.test/' }]);
+      const { prompter, selectCalls } = scriptedPrompter(['Open in browser']);
+      const runTask = async () => ({
+        kind: 'opened' as const,
+        url: 'https://example.test/',
+      });
+
+      const result = await runSetupLoop(initial, prompter, { runTask });
+      expect(selectCalls[0]?.choices[0]).toBe('Open in browser');
+      expect(result.checklist.tasks[0]?.status).toBe('done');
+    });
+
+    it('non-actionable tasks (detail-only) get the regular Mark/Skip/Quit choices even with a runner', async () => {
+      const initial = checklistFromTasks([{ id: 'a', title: 'A', detail: 'manual' }]);
+      const { prompter, selectCalls } = scriptedPrompter(['Mark as done']);
+      const runTask = async () => ({ kind: 'no-action' as const });
+
+      await runSetupLoop(initial, prompter, { runTask });
+      expect(selectCalls[0]?.choices).not.toContain('Run now');
+      expect(selectCalls[0]?.choices).not.toContain('Open in browser');
+    });
+
+    it('a failed run keeps the task pending and re-prompts the SAME task', async () => {
+      const initial = checklistFromTasks([{ id: 'a', title: 'A', run: 'npm install' }]);
+      const { prompter, selectCalls, notes } = scriptedPrompter([
+        'Run now', // first time → fails
+        'Skip for now', // user backs off after failure
+      ]);
+      let calls = 0;
+      const runTask = async () => {
+        calls++;
+        return { kind: 'ran' as const, exitCode: 1 };
+      };
+
+      const result = await runSetupLoop(initial, prompter, { runTask });
+
+      expect(calls).toBe(1);
+      expect(result.checklist.tasks[0]?.status).toBe('pending');
+      expect(result.steps.map((s) => s.action)).toEqual(['ran-failed', 'skipped']);
+      // Two prompts against the same task (re-prompted after the failure).
+      expect(selectCalls).toHaveLength(2);
+      // The failure note surfaces the exit code.
+      expect(notes.some((n) => n.body.includes('exited with code 1'))).toBe(true);
+    });
+
+    it('persists via onSave only when the run succeeds', async () => {
+      const initial = checklistFromTasks([{ id: 'a', title: 'A', run: 'npm install' }]);
+      const { prompter } = scriptedPrompter(['Run now']);
+      const saves: Checklist[] = [];
+      const runTask = async () => ({ kind: 'ran' as const, exitCode: 0 });
+
+      await runSetupLoop(initial, prompter, {
+        runTask,
+        onSave: (c) => {
+          saves.push(c);
+        },
+      });
+
+      expect(saves).toHaveLength(1);
+      expect(saves[0]?.tasks[0]?.status).toBe('done');
+    });
+  });
 });

@@ -250,6 +250,7 @@ setup:
   tasks:
     - id: install
       title: npm install
+      run: npm install
 `,
     );
     await writeFileEnsure(join(componentRoot, 'package.json'), '{"name": "{{ project_name }}"}\n');

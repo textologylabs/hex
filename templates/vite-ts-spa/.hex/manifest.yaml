@@ -50,35 +50,41 @@ setup:
   tasks:
     - id: install-deps
       title: Install dependencies
-      detail: |
-        cd into the project and run:
-          npm install
+      run: npm install
     - id: git-init
-      title: Initialise git and connect a remote
+      title: Initialise a git repository
+      run: git init -b main
+    - id: git-stage
+      title: Stage every scaffolded file
+      run: git add .
+    - id: git-commit-initial
+      title: Make the initial commit
+      run: git commit -m "initial commit"
+    - id: configure-git-remote
+      title: Connect the repo to GitHub
       detail: |
-        git init -b main
-        git add .
-        git commit -m "initial commit"
-        git remote add origin <your-github-url>
-        git push -u origin main
+        Create a new repo on GitHub, then connect + push from your project root:
+          git remote add origin <your-github-url>
+          git push -u origin main
     - id: vercel-link
       title: Link the project to Vercel
+      run: vercel link
       detail: |
-        Install the Vercel CLI if you haven't:
-          npm i -g vercel
-        Then link the project (creates .vercel/ — keep it out of git):
-          vercel link
+        Creates a .vercel/ folder linking this project to a Vercel project
+        (already in .gitignore). The vercel CLI is run via npx if not installed
+        globally — accept its interactive prompts.
+    - id: open-vercel-tokens
+      title: Open the Vercel tokens page
+      open: https://vercel.com/account/tokens
     - id: set-vercel-token
-      title: Set VERCEL_TOKEN secret on the GitHub repo
+      title: Save the deploy token as a GitHub repo secret
+      run: gh secret set VERCEL_TOKEN
       detail: |
-        Generate a deploy token at https://vercel.com/account/tokens
-        Then add it as a repo secret:
-          gh secret set VERCEL_TOKEN
+        Pastes your VERCEL_TOKEN into the repo's Actions secrets.
         (The deploy workflow in .github/workflows/deploy.yml uses this token.)
     - id: first-deploy
       title: First deploy
+      run: hex deploy
       detail: |
-        From your project root:
-          hex deploy
-        On success, Hex prints the deploy URL. Subsequent pushes to
-        `main` trigger the GitHub Actions workflow to deploy automatically.
+        On success, Hex prints the deploy URL. Subsequent pushes to `main`
+        trigger the GitHub Actions workflow to deploy automatically.

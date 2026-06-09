@@ -414,19 +414,34 @@ describe('parseManifestObject — setup', () => {
       setup: {
         message: 'A few things to wire up:',
         tasks: [
-          { id: 'install-deps', title: 'Install dependencies', detail: 'npm install' },
-          { id: 'push-to-github', title: 'Push to GitHub for first deploy' },
+          { id: 'install-deps', title: 'Install dependencies', run: 'npm install' },
+          { id: 'view-dashboard', title: 'Open the dashboard', open: 'https://example.test/' },
+          { id: 'push-to-github', title: 'Push to GitHub for first deploy', detail: 'git push' },
         ],
       },
     });
     expect(m.setup?.message).toBe('A few things to wire up:');
-    expect(m.setup?.tasks).toHaveLength(2);
+    expect(m.setup?.tasks).toHaveLength(3);
     expect(m.setup?.tasks?.[0]).toEqual({
       id: 'install-deps',
       title: 'Install dependencies',
-      detail: 'npm install',
+      run: 'npm install',
     });
-    expect(m.setup?.tasks?.[1]?.detail).toBeUndefined();
+    expect(m.setup?.tasks?.[1]).toEqual({
+      id: 'view-dashboard',
+      title: 'Open the dashboard',
+      open: 'https://example.test/',
+    });
+    expect(m.setup?.tasks?.[2]?.detail).toBe('git push');
+  });
+
+  it('rejects a setup task that declares none of run/open/detail', () => {
+    expect(() =>
+      parseManifestObject({
+        ...baseManifest,
+        setup: { tasks: [{ id: 'bare', title: 'No action' }] },
+      }),
+    ).toThrow(/run.*open.*detail/);
   });
 
   it('accepts a setup block with only a message', () => {

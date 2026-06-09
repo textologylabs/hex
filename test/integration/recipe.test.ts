@@ -112,6 +112,7 @@ setup:
       detail: cp .env.example .env
     - id: db-migrate
       title: Run the initial DB migration
+      detail: ./scripts/migrate.sh
 `,
   );
   await writeFileEnsure(join(apiRoot, 'server.ts'), 'listen({{ port }})');

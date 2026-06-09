@@ -9,6 +9,11 @@ export const checklistTaskSchema = z.object({
     .min(1)
     .regex(TASK_ID_RE, 'task id must be kebab-case ([a-z0-9-], no leading/trailing dash)'),
   title: z.string().min(1),
+  // M14.7: tasks remember their `run` / `open` declarations so the
+  // interactive `hex setup` picker and `hex doctor` can offer the
+  // executor actions without re-reading the manifest.
+  run: z.string().min(1).optional(),
+  open: z.string().min(1).optional(),
   detail: z.string().optional(),
   status: taskStatusSchema,
 });

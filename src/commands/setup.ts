@@ -13,9 +13,16 @@ import {
   updateChecklist,
   writeChecklist,
 } from '../core/checklist/index.js';
+import type { ChecklistTask } from '../core/checklist/index.js';
 import { createClackPrompter } from '../core/prompts/clack-prompter.js';
 import type { Prompter } from '../core/prompts/types.js';
 import { type SetupResult, runSetupLoop } from '../core/setup/loop.js';
+import {
+  type RunEffects,
+  type TaskRunOutcome,
+  defaultRunEffects,
+  runSetupTask,
+} from '../core/setup/run.js';
 
 export class SetupCommandError extends Error {
   constructor(message: string) {
@@ -34,10 +41,15 @@ export type SetupSession = {
  * Drive the interactive setup loop against a session, persisting the
  * checklist to disk after every toggle. Pure data layer — emits no
  * stdout itself; rendering happens through the prompter.
+ *
+ * M14.7: `runTask` enables the "Run now" / "Open in browser" picker
+ * choices for actionable tasks. Omit it for unit-test sessions that
+ * shouldn't exercise the executor.
  */
 export async function runSetupSession(
   session: SetupSession,
   prompter: Prompter,
+  opts: { runTask?: (task: ChecklistTask) => Promise<TaskRunOutcome> } = {},
 ): Promise<SetupResult> {
   const checklistPath = join(session.rootDir, CHECKLIST_REL_PATH);
   return runSetupLoop(session.checklist, prompter, {
@@ -53,7 +65,32 @@ export async function runSetupSession(
       }
       await updateChecklist(session.rootDir, (c) => markTask(c, change.taskId, change.status));
     },
+    ...(opts.runTask !== undefined && { runTask: opts.runTask }),
   });
+}
+
+/**
+ * Build a `runTask` closure that the interactive loop can call when a
+ * user picks "Run now" / "Open in browser". Resolves task → executor
+ * call against the supplied effects (real spawn in production; a
+ * scripted effect in tests).
+ */
+export function makeInteractiveRunner(
+  cwd: string,
+  effects: RunEffects = defaultRunEffects,
+): (task: ChecklistTask) => Promise<TaskRunOutcome> {
+  return (task) =>
+    runSetupTask(
+      {
+        id: task.id,
+        title: task.title,
+        ...(task.run !== undefined && { run: task.run }),
+        ...(task.open !== undefined && { open: task.open }),
+        ...(task.detail !== undefined && { detail: task.detail }),
+      },
+      cwd,
+      effects,
+    );
 }
 
 export function registerSetup(program: Command): void {
@@ -109,6 +146,7 @@ export async function runSetupCommand(cwd: string, effects: SetupCommandEffects)
   const result = await runSetupSession(
     { rootDir: loaded.rootDir, checklist: loaded.checklist },
     effects.prompterFactory(),
+    { runTask: makeInteractiveRunner(loaded.rootDir) },
   );
 
   effects.printOutro(result);
