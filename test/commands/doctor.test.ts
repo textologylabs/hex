@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { formatLockfileSection, formatSetupSection } from '../../src/commands/doctor.js';
+import {
+  buildDoctorReport,
+  formatDoctorText,
+  formatLockfileSection,
+  formatSetupSection,
+} from '../../src/commands/doctor.js';
 import { checklistFromTasks, markTask } from '../../src/core/checklist/index.js';
 import type { LoadedLockfile, Lockfile, LockfileIntegrity } from '../../src/core/lockfile/index.js';
+
+const fakeEnv = { node: 'v22.0.0', platform: 'linux x64', terminal: 'xterm' };
 
 const fakePath = '/work/.hex/checklist.yaml';
 const fakeRoot = '/work';
@@ -165,5 +172,114 @@ describe('formatLockfileSection', () => {
     };
     const out = formatLockfileSection(loaded(lockfile), cleanIntegrity);
     expect(out).toContain('component db-postgres@2.0.0');
+  });
+});
+
+describe('buildDoctorReport (M14.8)', () => {
+  it('env-only report — no checklist, no lockfile', () => {
+    const r = buildDoctorReport(fakeEnv, null, null, null);
+    expect(r).toEqual({ env: fakeEnv });
+  });
+
+  it('captures pending tasks with their run / open / detail declarations', () => {
+    let cl = checklistFromTasks([
+      { id: 'install', title: 'Install', run: 'npm install' },
+      { id: 'view', title: 'View dashboard', open: 'https://e.test/' },
+      { id: 'manual', title: 'Do it', detail: 'just do it' },
+      { id: 'done', title: 'Already done', detail: 'nothing' },
+    ]);
+    cl = markTask(cl, 'done', 'done');
+
+    const r = buildDoctorReport(
+      fakeEnv,
+      { path: fakePath, rootDir: fakeRoot, checklist: cl },
+      null,
+      null,
+    );
+    expect(r.setup?.counts).toEqual({ pending: 3, done: 1 });
+    expect(r.setup?.pending).toEqual([
+      { id: 'install', title: 'Install', run: 'npm install' },
+      { id: 'view', title: 'View dashboard', open: 'https://e.test/' },
+      { id: 'manual', title: 'Do it', detail: 'just do it' },
+    ]);
+  });
+
+  it('captures the lockfile shape + integrity', () => {
+    const r = buildDoctorReport(fakeEnv, null, loaded(fakeRecipeLockfile()), cleanIntegrity);
+    expect(r.lockfile?.root).toEqual({
+      name: 'node-ts-fullstack',
+      version: '0.1.0',
+      type: 'recipe',
+    });
+    expect(r.lockfile?.children[0]).toMatchObject({ key: 'api', name: 'api-fastify' });
+    // Nested children preserved
+    expect(r.lockfile?.children[1]?.children?.[0]).toMatchObject({ key: 'db', stub: true });
+    expect(r.lockfile?.integrity).toEqual(cleanIntegrity);
+  });
+
+  it('records the lockfileWarning when a present lockfile was unreadable', () => {
+    const r = buildDoctorReport(fakeEnv, null, null, null, 'schema validation failed');
+    expect(r.lockfile).toBeUndefined();
+    expect(r.lockfileWarning).toBe('schema validation failed');
+  });
+
+  it('omits setup from the report entirely when no checklist was found', () => {
+    const r = buildDoctorReport(fakeEnv, null, loaded(fakeRecipeLockfile()), cleanIntegrity);
+    expect(r.setup).toBeUndefined();
+  });
+});
+
+describe('formatDoctorText (M14.8)', () => {
+  it('renders lockfile BEFORE outstanding setup tasks', () => {
+    const cl = checklistFromTasks([{ id: 'a', title: 'A', run: 'npm install' }]);
+    const out = formatDoctorText(
+      buildDoctorReport(
+        fakeEnv,
+        { path: fakePath, rootDir: fakeRoot, checklist: cl },
+        loaded(fakeRecipeLockfile()),
+        cleanIntegrity,
+      ),
+    );
+    const lockIdx = out.indexOf('Lockfile');
+    const setupIdx = out.indexOf('Outstanding setup tasks');
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(setupIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeLessThan(setupIdx);
+  });
+
+  it("appends each pending task's action hint inline", () => {
+    const cl = checklistFromTasks([
+      { id: 'install', title: 'Install', run: 'npm install' },
+      { id: 'view', title: 'View dashboard', open: 'https://e.test/' },
+      { id: 'manual', title: 'Do it', detail: 'just do it' },
+    ]);
+    const out = formatDoctorText(
+      buildDoctorReport(fakeEnv, { path: fakePath, rootDir: fakeRoot, checklist: cl }, null, null),
+    );
+    expect(out).toContain('→ run: npm install');
+    expect(out).toContain('→ open: https://e.test/');
+    // Detail-only tasks get no inline hint (action is the title).
+    const manualLine = out.split('\n').find((l) => l.includes('manual  '));
+    expect(manualLine).toBeDefined();
+    expect(manualLine).not.toContain('→');
+  });
+
+  it('renders the lockfileWarning in place of the full lockfile block', () => {
+    const out = formatDoctorText(
+      buildDoctorReport(fakeEnv, null, null, null, 'schema validation failed'),
+    );
+    expect(out).toContain('Lockfile');
+    expect(out).toContain('schema validation failed');
+    // The full "(component foo@bar)" header should be absent.
+    expect(out).not.toContain('integrity clean');
+  });
+
+  it('omits the setup section when there are no pending tasks', () => {
+    let cl = checklistFromTasks([{ id: 'a', title: 'A', detail: 'x' }]);
+    cl = markTask(cl, 'a', 'done');
+    const out = formatDoctorText(
+      buildDoctorReport(fakeEnv, { path: fakePath, rootDir: fakeRoot, checklist: cl }, null, null),
+    );
+    expect(out).not.toContain('Outstanding setup tasks');
   });
 });
