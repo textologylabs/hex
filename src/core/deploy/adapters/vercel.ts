@@ -19,9 +19,15 @@ import type { DeployAdapter, DeployContext, DeployResult } from '../types.js';
  * Token is read from `VERCEL_TOKEN`. The Hex CLI never prompts on behalf
  * of vercel — we pass `--yes` so a project that's not already linked
  * does not hang the deploy waiting for stdin.
+ *
+ * **Invocation (M14.10).** We always go through `npx --yes vercel …`
+ * rather than calling `vercel` directly so users don't need a global
+ * `npm i -g vercel` first. The `--yes` on `npx` auto-confirms the
+ * on-demand install; the `--yes` on the vercel sub-command (still
+ * present) keeps suppressing vercel's own interactive link prompt.
  */
 
-const VERCEL_BIN = 'vercel';
+const NPX_BIN = 'npx';
 const VERCEL_TOKEN_ENV = 'VERCEL_TOKEN';
 
 const vercelConfigSchema = z
@@ -95,12 +101,12 @@ export function createVercelAdapter(opts: CreateVercelAdapterOptions = {}): Depl
       if (!token) {
         throw new VercelDeployError(`${VERCEL_TOKEN_ENV} is not set`);
       }
-      const args = ['deploy', '--yes', '--token', token];
+      const args = ['--yes', 'vercel', 'deploy', '--yes', '--token', token];
       if (config.prod) args.push('--prod');
 
       let result: VercelRunnerResult;
       try {
-        result = await runner(VERCEL_BIN, args, { cwd: ctx.appRoot, env: ctx.env });
+        result = await runner(NPX_BIN, args, { cwd: ctx.appRoot, env: ctx.env });
       } catch (err) {
         const cliStderr = readStderr(err);
         throw new VercelDeployError(

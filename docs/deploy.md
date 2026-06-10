@@ -59,9 +59,11 @@ What that does:
 3. Checks the adapter's required env vars (`VERCEL_TOKEN` for Vercel) —
    exits non-zero with a clear message if any are missing.
 4. Calls `adapter.deploy(ctx)`. For Vercel, that shells out to
-   `vercel deploy --yes --token "$VERCEL_TOKEN"` (and `--prod` when
-   the stanza opts in), captures stdout/stderr, and parses the deploy
-   URL.
+   `npx --yes vercel deploy --yes --token "$VERCEL_TOKEN"` (and
+   `--prod` when the stanza opts in), captures stdout/stderr, and
+   parses the deploy URL. Going through `npx` means **no global
+   `npm i -g vercel` is required** — the CLI is fetched on demand the
+   first time you deploy.
 5. Prints the URL on success; on failure, prints the vercel CLI's own
    stderr so you can see what went wrong.
 

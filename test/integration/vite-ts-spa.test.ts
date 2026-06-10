@@ -173,6 +173,12 @@ describe('vite-ts-spa template — end-to-end', () => {
     ]);
   });
 
+  it('runs vercel link via npx so no global install is required (M14.10)', async () => {
+    const bundle = await loadFromPath(TEMPLATE_PATH);
+    const link = bundle.manifest.setup?.tasks?.find((t) => t.id === 'vercel-link');
+    expect(link?.run).toBe('npx --yes vercel link');
+  });
+
   it('rejects an invalid project_name (pattern fails)', async () => {
     const bundle = await loadFromPath(TEMPLATE_PATH);
     await expect(

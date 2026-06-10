@@ -68,11 +68,11 @@ setup:
           git push -u origin main
     - id: vercel-link
       title: Link the project to Vercel
-      run: vercel link
+      run: npx --yes vercel link
       detail: |
         Creates a .vercel/ folder linking this project to a Vercel project
-        (already in .gitignore). The vercel CLI is run via npx if not installed
-        globally — accept its interactive prompts.
+        (already in .gitignore). The vercel CLI is fetched on-demand via npx
+        — no global install required. Accept its interactive prompts.
     - id: open-vercel-tokens
       title: Open the Vercel tokens page
       open: https://vercel.com/account/tokens

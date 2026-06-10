@@ -34,6 +34,7 @@ import type { SetupTask } from '../manifest/types.js';
  */
 export const RUN_COMMAND_ALLOWLIST: readonly string[] = [
   'npm',
+  'npx',
   'yarn',
   'pnpm',
   'bun',
