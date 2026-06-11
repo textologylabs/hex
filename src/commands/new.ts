@@ -34,13 +34,15 @@ import {
   countActionableTasks,
   runExecutorPass,
 } from '../core/setup/executor-pass.js';
-import {
-  SetupExecutorError,
-  type TaskRunOutcome,
-  validateSetupTasksAllowlist,
-} from '../core/setup/run.js';
+import type { RitualOutcome } from '../core/setup/ritual.js';
+import { SetupExecutorError, validateSetupTasksAllowlist } from '../core/setup/run.js';
 import { type ComponentBundle, loadFromPath } from '../core/sources/file-source.js';
-import { makeInteractiveRunner, printSetupOutro, runSetupSession } from './setup.js';
+import {
+  defaultRitualEffects,
+  makeInteractiveRunner,
+  printSetupOutro,
+  runSetupSession,
+} from './setup.js';
 
 export class NewCommandError extends Error {
   constructor(message: string) {
@@ -353,10 +355,11 @@ async function maybeAutoExecutePass(outputDir: string, initial: Checklist): Prom
 
   const result: ExecutorPassResult = await runExecutorPass(initial, {
     cwd: outputDir,
-    onTaskStart: (task) => {
-      const action = task.open !== undefined ? `open ${task.open}` : `run ${task.run}`;
-      clack.log.step(`${task.title} — ${action}`);
-    },
+    ritualEffects: defaultRitualEffects,
+    // narrate (in ritualEffects) prints the structured plan per task;
+    // the per-task "running X" line that lived here in M14.7 would
+    // duplicate that, so it's gone. Completion outcomes still surface
+    // here as ✓ / ✗ summaries.
     onTaskComplete: (report) => {
       if (report.markedDone) {
         clack.log.success(`✓ ${report.task.title}`);
@@ -369,10 +372,11 @@ async function maybeAutoExecutePass(outputDir: string, initial: Checklist): Prom
   return result.checklist;
 }
 
-function describeFailure(outcome: TaskRunOutcome): string {
+function describeFailure(outcome: RitualOutcome): string {
   if (outcome.kind === 'spawn-error') return outcome.message;
   if (outcome.kind === 'ran' || outcome.kind === 'opened-and-ran')
     return `exited ${outcome.exitCode}`;
+  if (outcome.kind === 'declined') return 'skipped';
   return '';
 }
 

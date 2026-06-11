@@ -162,15 +162,22 @@ describe('vite-ts-spa template — end-to-end', () => {
     const ids = bundle.manifest.setup?.tasks?.map((t) => t.id).sort();
     expect(ids).toEqual([
       'configure-git-remote',
+      'configure-vercel-token',
       'first-deploy',
       'git-commit-initial',
       'git-init',
       'git-stage',
       'install-deps',
-      'open-vercel-tokens',
-      'set-vercel-token',
       'vercel-link',
     ]);
+  });
+
+  it('configure-vercel-token combines open: + run: + detail: in one task (M14.11)', async () => {
+    const bundle = await loadFromPath(TEMPLATE_PATH);
+    const token = bundle.manifest.setup?.tasks?.find((t) => t.id === 'configure-vercel-token');
+    expect(token?.open).toBe('https://vercel.com/account/tokens');
+    expect(token?.run).toBe('gh secret set VERCEL_TOKEN');
+    expect(token?.detail).toMatch(/mint/i);
   });
 
   it('runs vercel link via npx so no global install is required (M14.10)', async () => {

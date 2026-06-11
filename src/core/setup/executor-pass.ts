@@ -5,12 +5,12 @@ import {
   updateChecklist,
 } from '../checklist/index.js';
 import {
-  type RunEffects,
-  type TaskRunOutcome,
-  defaultRunEffects,
-  outcomeSucceeded,
-  runSetupTask,
-} from './run.js';
+  type RitualEffects,
+  type RitualOutcome,
+  ritualOutcomeSucceeded,
+  runRitualTask,
+} from './ritual.js';
+import { type RunEffects, defaultRunEffects } from './run.js';
 
 /**
  * Auto-execute sweep (M14.7). Before the user reaches the interactive
@@ -23,7 +23,7 @@ import {
 
 export type ExecutorTaskReport = {
   task: ChecklistTask;
-  outcome: TaskRunOutcome;
+  outcome: RitualOutcome;
   /** Whether the outcome resulted in the task being marked done. */
   markedDone: boolean;
 };
@@ -38,6 +38,15 @@ export type ExecutorPassOpts = {
   cwd: string;
   /** Injected executor effects (test seam). Defaults to real spawn + browser-open. */
   effects?: RunEffects;
+  /**
+   * Injected ritual effects (M14.11). When provided, every actionable
+   * task is driven through the narrate → confirm → open → pause → run
+   * ritual. Tests substitute scripted prompts; the CLI wires a
+   * clack-based implementation. Omitting this falls back to a silent
+   * auto-proceed (no narration, no confirm, no pause) for backwards
+   * compatibility with the M14.7 unit tests.
+   */
+  ritualEffects?: RitualEffects;
   /** Generated-app root for the atomic checklist updates. Defaults to `cwd`. */
   rootDir?: string;
   /**
@@ -75,15 +84,18 @@ export async function runExecutorPass(
   opts: ExecutorPassOpts,
 ): Promise<ExecutorPassResult> {
   const effects = opts.effects ?? defaultRunEffects;
+  const ritualEffects = opts.ritualEffects ?? silentRitualEffects;
   const rootDir = opts.rootDir ?? opts.cwd;
   const reports: ExecutorTaskReport[] = [];
   let checklist = initial;
 
-  for (const task of initial.tasks) {
-    if (task.status !== 'pending') continue;
-    if (!isActionable(task)) continue;
+  const actionable = initial.tasks.filter((t) => t.status === 'pending' && isActionable(t));
+
+  for (let i = 0; i < actionable.length; i++) {
+    const task = actionable[i];
+    if (!task) continue;
     opts.onTaskStart?.(task);
-    const outcome = await runSetupTask(
+    const outcome = await runRitualTask(
       {
         id: task.id,
         title: task.title,
@@ -91,10 +103,15 @@ export async function runExecutorPass(
         ...(task.open !== undefined && { open: task.open }),
         ...(task.detail !== undefined && { detail: task.detail }),
       },
-      opts.cwd,
-      effects,
+      {
+        index: i + 1,
+        total: actionable.length,
+        cwd: opts.cwd,
+        ritualEffects,
+        runEffects: effects,
+      },
     );
-    const success = outcomeSucceeded(outcome);
+    const success = ritualOutcomeSucceeded(outcome);
     let markedDone = false;
     if (success) {
       checklist = await updateChecklist(rootDir, (c) => markTask(c, task.id, 'done'));
@@ -111,3 +128,17 @@ export async function runExecutorPass(
 
   return { checklist, reports };
 }
+
+/**
+ * Default ritual effects — silent auto-proceed. Used when the caller
+ * doesn't inject anything, which is exactly the M14.7-era contract
+ * (no narration, no confirm, no pause). The CLI layer always provides
+ * its clack-based ritual effects in production; tests use scripted
+ * implementations. This default keeps backwards compatibility for any
+ * caller not yet upgraded.
+ */
+const silentRitualEffects: RitualEffects = {
+  narrate: () => undefined,
+  confirm: async () => true,
+  awaitContinue: async () => undefined,
+};
