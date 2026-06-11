@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] — 2026-06-11
+
+First published release of `@hexology/hex` on npm. v0.9.0 closes the M14 release pass and lands the work that turns Hex from a working local scaffolder into a tool a teammate can install and use end-to-end without a clone.
+
+**Phase 1 — configurable scaffolder.** M8 added stubbable components (in-process + out-of-process engines, recipe-side dedup, fixtures, prod-clean lint). M9 built the marketplace foundations (signed `hexpkg/1` format, `MarketplaceSource`, qualified `<marketplace>/<name>@<version>` addressing, multi-marketplace aggregation, block/override policy, `hex search` / `hex browse`, and a reference registry server). M10 made generated apps self-describing with a `.hex/lockfile.yaml` (schema + writer + reader + integrity verification + `hex doctor` integration). M11 shipped the upgrade engine (pristine reconstruction from the lockfile, stepwise chain walk, declarative + JS migration vocabulary, 3-way merge with git-style conflict markers, `hex upgrade` + `--continue` + `--abort`, user-tree escape hatch, modify/delete orphan handling).
+
+**Phase 2 — deploy + CI/CD (M12).** First-class `DeployAdapter` + `CicdProvider` interfaces, a `hex deploy` command driven by the lockfile, a Vercel deploy adapter, a `cicd-github-actions` provider that emits a `.github/workflows/deploy.yml`, the `vite-ts-spa` reference template that dogfoods the whole stack, and the user-facing docs.
+
+**M13 — git-catalogue marketplace.** The middle-ground path between local sources and a hosted registry: a `marketplace.yaml` repo lists packages + per-version git coordinates + block/override policy. `catalogue:` is a new `~/.hex/config.yaml` source kind alongside `path:` and `git:`; `hex list` / `hex search` / `hex browse` walk catalogues; `hex new <ns>/<name>@<spec>` resolves through them. A starter `templates/marketplace-catalogue` and `hex marketplace validate` complete the publish loop.
+
+**M14 — release pass.** The work in this release that makes v0.9.0 shippable: package preparation + MIT LICENSE alignment (M14.1), tag-triggered npm publish + GitHub release workflow (M14.2), the `§4 walkthrough` matrix that surfaced the remaining footguns (M14.3), the three-action setup task model (`run:` / `open:` / `detail:`) with auto-execute pass and per-task hand-off ritual (M14.7 + M14.11), `hex doctor` surfaces outstanding setup tasks + `--json` (M14.8), `hex search` / `hex browse` walk `path:` / `git:` source roots so local-template dev loops work (M14.9), and Vercel CLI via `npx` so no global install is required (M14.10).
+
+### Added
 
 ### Added
 
@@ -32,10 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Lockfile — capture the full nested-recipe tree. The M10.1 `LockChild` schema and the M10.2 `buildLockfile` builder now record composed children **recursively**: a recipe child carries its own descendants under a nested `children` field (a component leaf omits it). This closes the M10.2 known limitation — only the root's immediate children were captured — so the lockfile describes the whole composition tree the M11 upgrade engine needs for pristine reconstruction. The schema's `lockChildSchema` becomes a `z.lazy` recursive type; the builder walks each child's resolved sub-recipe. 3 new tests cover nested-tree schema validation (including recursive rejection of a malformed grandchild) and a three-level `recipe → recipe → component` render whose lockfile records the tree.
-- Added a `prepublishOnly` script (`npm run check && npm run build`) so any future `npm publish` is forced to run the full test suite and recompile `dist/` from current source first — the published tarball can never be a stale build, and a failing test aborts the release. Purely a release-time guard; no behaviour change day-to-day. The package is not yet published.
-
-### Changed
-
+- Added a `prepublishOnly` script (`npm run check && npm run build`) so any future `npm publish` is forced to run the full test suite and recompile `dist/` from current source first — the published tarball can never be a stale build, and a failing test aborts the release. Purely a release-time guard.
 - Manual-test matrix docs — three release-time test surfaces don't lend themselves to cheap CI: the real `@clack/prompts` wiring against a TTY (M4 known gap), non-`file://` git auth paths (HTTPS public, HTTPS credential-helper, SSH agent — M3 known gap), and Windows shell-to-git (M3 known gap, all current CI runs on darwin). Each of those tickets' own acceptance criteria allowed a documented manual-test matrix as the alternative to building heavy infra (pty harness, containerised git server, Windows CI matrix). New `docs/testing.md` is that matrix — section per surface, **specific commands** to run and **specific outputs** to look for, plus a release checklist. README's `## Scripts` section now points at it. Closes M4 clack-prompter end-to-end (`869d6q7wx`), M3 real auth paths (`869d6q7wn`), M3 Windows shell-to-git (`869d6q7wh`) — the last three items in the tech-debt sweep that followed the M11 epic.
 
 ### Fixed
