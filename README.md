@@ -2,9 +2,9 @@
 
 Scaffolding tool that assembles applications from templated components — honeycomb-style. Part of the [Hexology](https://github.com/textologylabs/hex) toolset.
 
-Status: **Phase 1 + 2 + git-catalogue marketplace complete** — render pipeline, recipes, hosted-marketplace (M9), lockfile (M10), upgrade engine (M11), deploy + CI/CD (M12), and the git-catalogue marketplace model (M13). Milestones M1–M13 are in. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
+Status: **v0.9.0 — first npm release**. Phase 1 (render pipeline, recipes, hosted-marketplace foundations, lockfile, upgrade engine — M1–M11), Phase 2 (deploy + CI/CD — M12), and the git-catalogue marketplace model (M13) are shipped. The M14 release pass added the publish workflow, setup-task executor + hand-off ritual, doctor surfaces, and the dogfood walkthrough. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
 
-Install once published: `npm install -g @hexology/hex` and run `hex`.
+Install: `npm install -g @hexology/hex` (or `npx --yes @hexology/hex@latest`) and run `hex`.
 
 ## Configuring source roots
 
@@ -145,4 +145,4 @@ is the matrix.
 
 ## Roadmap
 
-See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder, M1–M11) and Phase 2 (deploy + CI/CD, M12) are shipped. The git-catalogue marketplace (M13) makes Hex usable in real teams without anyone running a registry server. The hosted-registry path remains parked at M9.9 — see [`docs/marketplace.md`](./docs/marketplace.md) for the pickup notes. Next: an npm-publish + release walkthrough pass before v0.9.0.
+See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder, M1–M11) and Phase 2 (deploy + CI/CD, M12) are shipped. The git-catalogue marketplace (M13) makes Hex usable in real teams without anyone running a registry server. The M14 release pass cut v0.9.0 — first published `@hexology/hex` on npm. The hosted-registry path remains parked at M9.9 — see [`docs/marketplace.md`](./docs/marketplace.md) for the pickup notes.

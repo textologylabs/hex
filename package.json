@@ -1,6 +1,6 @@
 {
   "name": "@hexology/hex",
-  "version": "0.7.0",
+  "version": "0.9.0",
   "description": "Scaffolding tool that assembles applications from templated components — honeycomb-style.",
   "keywords": [
     "scaffolding",
