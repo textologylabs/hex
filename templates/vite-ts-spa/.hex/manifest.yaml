@@ -73,15 +73,16 @@ setup:
         Creates a .vercel/ folder linking this project to a Vercel project
         (already in .gitignore). The vercel CLI is fetched on-demand via npx
         — no global install required. Accept its interactive prompts.
-    - id: open-vercel-tokens
-      title: Open the Vercel tokens page
+    - id: configure-vercel-token
+      title: Configure the Vercel deploy token
       open: https://vercel.com/account/tokens
-    - id: set-vercel-token
-      title: Save the deploy token as a GitHub repo secret
       run: gh secret set VERCEL_TOKEN
       detail: |
-        Pastes your VERCEL_TOKEN into the repo's Actions secrets.
-        (The deploy workflow in .github/workflows/deploy.yml uses this token.)
+        On the tokens page, mint a new token (any name, no expiry needed,
+        default scope), then copy it to your clipboard. Return here and
+        paste it at the `gh secret set` prompt — Hex stores it as the
+        repo's VERCEL_TOKEN secret, which the deploy workflow at
+        .github/workflows/deploy.yml uses on every push to main.
     - id: first-deploy
       title: First deploy
       run: hex deploy

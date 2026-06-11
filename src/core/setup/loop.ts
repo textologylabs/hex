@@ -6,7 +6,7 @@ import {
 } from '../checklist/index.js';
 import type { Prompter } from '../prompts/types.js';
 import { isActionable } from './executor-pass.js';
-import { type TaskRunOutcome, outcomeSucceeded } from './run.js';
+import { type RitualOutcome, ritualOutcomeSucceeded } from './ritual.js';
 
 /** Action taken on a single task during the loop. */
 export type SetupAction =
@@ -52,7 +52,7 @@ export type SetupOpts = {
    * A successful outcome marks the task done; a failure leaves it
    * pending and surfaces the message via `prompter.note`.
    */
-  runTask?: (task: ChecklistTask) => Promise<TaskRunOutcome>;
+  runTask?: (task: ChecklistTask) => Promise<RitualOutcome>;
 };
 
 const ACTION_MARK_DONE = 'Mark as done';
@@ -120,7 +120,7 @@ export async function runSetupLoop(
         continue;
       }
       const outcome = await opts.runTask(task);
-      if (outcomeSucceeded(outcome)) {
+      if (ritualOutcomeSucceeded(outcome)) {
         checklist = markTask(checklist, task.id, 'done');
         if (opts.onSave) await opts.onSave(checklist, { taskId: task.id, status: 'done' });
         steps.push({ task: { ...task, status: 'done' }, action: 'ran-succeeded' });
@@ -165,7 +165,7 @@ function choicesForTask(task: ChecklistTask, hasRunner: boolean): string[] {
   return [action, ...base];
 }
 
-function renderRunOutcome(prompter: Prompter, outcome: TaskRunOutcome): void {
+function renderRunOutcome(prompter: Prompter, outcome: RitualOutcome): void {
   if (!prompter.note) return;
   if (outcome.kind === 'spawn-error') {
     prompter.note(`Could not start the command:\n${outcome.message}`, 'Task failed');
@@ -174,6 +174,10 @@ function renderRunOutcome(prompter: Prompter, outcome: TaskRunOutcome): void {
   if (outcome.kind === 'ran' || outcome.kind === 'opened-and-ran') {
     if (outcome.exitCode === 0) return;
     prompter.note(`Command exited with code ${outcome.exitCode}.`, 'Task failed');
+    return;
+  }
+  if (outcome.kind === 'declined') {
+    prompter.note('You declined the action.', 'Task skipped');
   }
 }
 

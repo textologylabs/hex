@@ -17,12 +17,8 @@ import type { ChecklistTask } from '../core/checklist/index.js';
 import { createClackPrompter } from '../core/prompts/clack-prompter.js';
 import type { Prompter } from '../core/prompts/types.js';
 import { type SetupResult, runSetupLoop } from '../core/setup/loop.js';
-import {
-  type RunEffects,
-  type TaskRunOutcome,
-  defaultRunEffects,
-  runSetupTask,
-} from '../core/setup/run.js';
+import { type RitualEffects, type RitualOutcome, runRitualTask } from '../core/setup/ritual.js';
+import { type RunEffects, defaultRunEffects } from '../core/setup/run.js';
 
 export class SetupCommandError extends Error {
   constructor(message: string) {
@@ -49,7 +45,7 @@ export type SetupSession = {
 export async function runSetupSession(
   session: SetupSession,
   prompter: Prompter,
-  opts: { runTask?: (task: ChecklistTask) => Promise<TaskRunOutcome> } = {},
+  opts: { runTask?: (task: ChecklistTask) => Promise<RitualOutcome> } = {},
 ): Promise<SetupResult> {
   const checklistPath = join(session.rootDir, CHECKLIST_REL_PATH);
   return runSetupLoop(session.checklist, prompter, {
@@ -70,17 +66,19 @@ export async function runSetupSession(
 }
 
 /**
- * Build a `runTask` closure that the interactive loop can call when a
- * user picks "Run now" / "Open in browser". Resolves task → executor
- * call against the supplied effects (real spawn in production; a
- * scripted effect in tests).
+ * Build a `runTask` closure that the interactive loop calls when the
+ * user picks "Run now" / "Open in browser". Routes each invocation
+ * through the M14.11 ritual (narrate → confirm-if-open → open → pause
+ * → run) so the picker behaviour matches the auto-execute pass — a
+ * user never gets a surprise browser pop.
  */
 export function makeInteractiveRunner(
   cwd: string,
   effects: RunEffects = defaultRunEffects,
-): (task: ChecklistTask) => Promise<TaskRunOutcome> {
+  ritualEffects: RitualEffects = defaultRitualEffects,
+): (task: ChecklistTask) => Promise<RitualOutcome> {
   return (task) =>
-    runSetupTask(
+    runRitualTask(
       {
         id: task.id,
         title: task.title,
@@ -88,10 +86,48 @@ export function makeInteractiveRunner(
         ...(task.open !== undefined && { open: task.open }),
         ...(task.detail !== undefined && { detail: task.detail }),
       },
-      cwd,
-      effects,
+      {
+        // Picker-driven runs are one-off — index/total aren't meaningful
+        // outside the auto-pass. The narration header still renders
+        // sensibly (`Setup task 1/1`).
+        index: 1,
+        total: 1,
+        cwd,
+        ritualEffects,
+        runEffects: effects,
+      },
     );
 }
+
+/**
+ * Production ritual effects — clack-based prompts. Each task's plan is
+ * rendered as a `clack.note` panel; the confirm + awaitContinue are
+ * yes/no prompts that the user just hits Enter through in the happy
+ * path. Cancel / Esc on either prompt returns false (declines the
+ * task — it stays pending so the user can try again later).
+ */
+export const defaultRitualEffects: RitualEffects = {
+  narrate(task, index, total, plan) {
+    clack.note(plan, ` Setup task ${index}/${total}: ${task.title} `);
+  },
+  async confirm(_task) {
+    const ok = await clack.confirm({
+      message: 'Proceed?',
+      initialValue: true,
+    });
+    return ok === true;
+  },
+  async awaitContinue(_task) {
+    await clack.confirm({
+      message: 'Done in the browser? Continue',
+      initialValue: true,
+    });
+    // Whatever the user picked (yes/no/cancel), we don't gate further on
+    // their answer — the only purpose of this prompt is to PAUSE until
+    // they've finished their browser work. The subsequent `run:` (if
+    // any) will surface its own success/failure independently.
+  },
+};
 
 export function registerSetup(program: Command): void {
   program

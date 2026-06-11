@@ -13,6 +13,7 @@ import {
   isActionable,
   runExecutorPass,
 } from '../../../src/core/setup/executor-pass.js';
+import type { RitualEffects } from '../../../src/core/setup/ritual.js';
 import type { RunEffects } from '../../../src/core/setup/run.js';
 
 let work: string;
@@ -166,5 +167,78 @@ describe('runExecutorPass', () => {
       effects: scriptedEffects(0),
     });
     expect(reports).toEqual([]);
+  });
+
+  describe('with ritualEffects (M14.11)', () => {
+    function recordingRitual(opts: { confirmYes?: boolean } = {}): RitualEffects & {
+      events: string[];
+    } {
+      const events: string[] = [];
+      return {
+        events,
+        narrate: (task, index, total) => {
+          events.push(`narrate:${task.id}:${index}/${total}`);
+        },
+        confirm: async (task) => {
+          events.push(`confirm:${task.id}`);
+          return opts.confirmYes ?? true;
+        },
+        awaitContinue: async (task) => {
+          events.push(`await:${task.id}`);
+        },
+      };
+    }
+
+    it('declined task stays pending — confirm-no skips both open + run', async () => {
+      const rootDir = work;
+      const initial = initialChecklist([
+        { id: 'token', title: 'Token', open: 'https://e.test/', run: 'gh secret set X' },
+      ]);
+      await writeChecklist(rootDir, initial);
+
+      const ritualEffects = recordingRitual({ confirmYes: false });
+      const runEffects = scriptedEffects(0);
+
+      const { reports } = await runExecutorPass(initial, {
+        cwd: rootDir,
+        effects: runEffects,
+        ritualEffects,
+      });
+      expect(reports.map((r) => `${r.task.id}:${r.markedDone}`)).toEqual(['token:false']);
+      expect(reports[0]?.outcome.kind).toBe('declined');
+      // Side effects skipped: narrate + confirm fired, but no open + no
+      // spawn (the runEffects-side spawn would push 'spawn:gh' to the
+      // recorder; we don't see it because confirm-no short-circuited).
+      expect(ritualEffects.events).toEqual(['narrate:token:1/1', 'confirm:token']);
+
+      const onDisk = parseYaml(await readFile(join(rootDir, CHECKLIST_REL_PATH), 'utf8')) as {
+        tasks: Array<{ id: string; status: string }>;
+      };
+      expect(onDisk.tasks.map((t) => `${t.id}=${t.status}`)).toEqual(['token=pending']);
+    });
+
+    it('narrate fires before open + spawn for every task', async () => {
+      const rootDir = work;
+      const initial = initialChecklist([
+        { id: 'install', title: 'Install', run: 'npm install' },
+        { id: 'token', title: 'Token', open: 'https://e.test/', run: 'gh secret set X' },
+      ]);
+      await writeChecklist(rootDir, initial);
+
+      const ritualEffects = recordingRitual();
+      await runExecutorPass(initial, {
+        cwd: rootDir,
+        effects: scriptedEffects(0),
+        ritualEffects,
+      });
+      // The run:-only task narrates but skips confirm + await; the
+      // open:+run: task narrates → confirms → awaits.
+      expect(ritualEffects.events).toEqual([
+        'narrate:install:1/2',
+        'narrate:token:2/2',
+        'confirm:token',
+        'await:token',
+      ]);
+    });
   });
 });

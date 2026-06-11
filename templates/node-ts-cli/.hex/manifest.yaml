@@ -83,18 +83,16 @@ setup:
         Create a new repo on GitHub, then connect + push from your project root:
           git remote add origin <your-github-url>
           git push -u origin main
-    - id: open-npm-tokens
-      title: Open the npm tokens page to mint an automation token
+    - id: configure-npm-token
+      title: Configure the npm publish token
       open: https://www.npmjs.com/
-      detail: |
-        Sign in, head to Access Tokens → Generate New Token → Automation.
-        (Skip if you opted out of the publish workflow.)
-    - id: set-npm-token
-      title: Save the token as a GitHub repo secret
       run: gh secret set NPM_TOKEN
       detail: |
-        Pastes your NPM_TOKEN into the repo's Actions secrets.
-        (Skip if you opted out of the publish workflow.)
+        Sign in to npm, head to Access Tokens → Generate New Token →
+        Automation, then copy the token. Return here and paste it at the
+        `gh secret set` prompt — Hex stores it as the repo's NPM_TOKEN
+        secret, which the publish workflow uses on every tag push.
+        (Skip this task if you opted out of the publish workflow.)
     - id: first-release
       title: Tag + push the first release
       detail: |
