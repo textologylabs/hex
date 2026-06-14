@@ -1,0 +1,82 @@
+name: release-prep
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version — an explicit semver (e.g. 1.2.3) or one of: major | minor | patch'
+        required: true
+        type: string
+
+# Manual release-prep (M15.16). Run this from the Actions tab to do the
+# mechanical part of cutting a release: bump package.json, consolidate
+# the `## [Unreleased]` CHANGELOG block into a dated `## [X.Y.Z]` section,
+# and open a `release/vX.Y.Z` PR.
+#
+# This STOPS at the PR on purpose. The maintainer owns the release: review
+# + merge the prep PR, then push the `vX.Y.Z` tag — that triggers
+# release.yml to run the publish + GitHub Release. (release.yml's
+# tag-matches-package.json guard is the backstop if the versions drift.)
+
+permissions:
+  contents: write        # push the release/* branch
+  pull-requests: write   # open the prep PR
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bump version
+        id: bump
+        run: |
+          npm version "${{ inputs.version }}" --no-git-tag-version
+          NEW="$(node -p "require('./package.json').version")"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "Bumped to $NEW"
+
+      - name: Consolidate CHANGELOG
+        run: node scripts/release-changelog.mjs "${{ steps.bump.outputs.version }}" "${{ steps.bump.outputs.date }}"
+
+      - name: Sanity-check the build before opening a PR
+        run: npm run build
+
+      - name: Commit + open release-prep PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Author identity via env (repo convention) — no `git config` mutation.
+          GIT_AUTHOR_NAME: 'github-actions[bot]'
+          GIT_AUTHOR_EMAIL: 'github-actions[bot]@users.noreply.github.com'
+          GIT_COMMITTER_NAME: 'github-actions[bot]'
+          GIT_COMMITTER_EMAIL: 'github-actions[bot]@users.noreply.github.com'
+        run: |
+          VER="${{ steps.bump.outputs.version }}"
+          BRANCH="release/v$VER"
+          git checkout -b "$BRANCH"
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "🚀 chore: release v$VER"
+          git push -u origin "$BRANCH"
+          cat > /tmp/pr-body.md <<EOF
+          Automated release prep for **v$VER** (M15.16).
+
+          - Bumped \`package.json\` → $VER
+          - Consolidated the \`## [Unreleased]\` CHANGELOG entries under \`## [$VER] — ${{ steps.bump.outputs.date }}\`
+
+          ## Next steps (maintainer)
+          1. Review + merge this PR.
+          2. Tag the merge commit on \`main\`: \`git tag v$VER && git push origin v$VER\`.
+          3. \`release.yml\` runs the publish + GitHub Release on the tag.
+          EOF
+          gh pr create --title "🚀 chore: release v$VER" --body-file /tmp/pr-body.md
