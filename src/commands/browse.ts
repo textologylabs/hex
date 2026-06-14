@@ -176,81 +176,94 @@ function writeWarnings(warnings: string[]): void {
   }
 }
 
-export function registerBrowse(program: Command): void {
-  program
-    .command('browse')
-    .description('browse marketplace categories and the templates filed under them')
+/** The `browse` action body — shared by the `hive` subcommand + legacy alias. */
+export async function runBrowseCommand(
+  category: string | undefined,
+  opts: { json: boolean },
+): Promise<void> {
+  const config = await loadConfig();
+  const marketplaces = config.marketplaces ?? [];
+
+  if (marketplaces.length === 0 && config.sources.length === 0) {
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify({ categories: [], warnings: [] }, null, 2)}\n`);
+      return;
+    }
+    const configPath = getDefaultConfigPath();
+    const example =
+      '  sources:\n    - path: ~/dev/hex-templates\n' +
+      '    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
+      '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
+    process.stdout.write(
+      `${brand.dim('No sources or marketplaces configured.')}\n\nAdd one with ${brand.bold('hex hive add <url>')} or edit ${brand.bold(configPath)}:\n\n${example}`,
+    );
+    return;
+  }
+
+  // A category argument lists it directly — no picker.
+  if (category !== undefined) {
+    const { results, warnings } = await browseCategoryAllSources(config, category);
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify({ category, results, warnings }, null, 2)}\n`);
+      return;
+    }
+    if (results.length === 0) {
+      process.stdout.write(`${brand.dim(`No templates in category "${category}".`)}\n`);
+    } else {
+      process.stdout.write(formatSearchTable(results));
+    }
+    writeWarnings(warnings);
+    return;
+  }
+
+  const { categories, warnings } = await listAllCategories(config);
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify({ categories, warnings }, null, 2)}\n`);
+    return;
+  }
+
+  if (categories.length === 0) {
+    process.stdout.write(`${brand.dim('No categories found.')}\n`);
+    writeWarnings(warnings);
+    return;
+  }
+
+  // Non-interactive (piped / no TTY): print the flat category list.
+  if (!process.stdout.isTTY) {
+    process.stdout.write(formatCategories(categories));
+    writeWarnings(warnings);
+    return;
+  }
+
+  // Interactive: pick a category, then drill down into its entries.
+  const picked = await select({
+    message: 'Browse which category?',
+    options: categories.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
+  });
+  if (isCancel(picked)) return;
+
+  const drill = await browseCategoryAllSources(config, picked as string);
+  if (drill.results.length === 0) {
+    process.stdout.write(`${brand.dim(`No templates in category "${picked}".`)}\n`);
+  } else {
+    process.stdout.write(formatSearchTable(drill.results));
+  }
+  writeWarnings([...warnings, ...drill.warnings]);
+}
+
+/** Attach the `browse` subcommand to a parent (M15.1). */
+export function buildBrowseCommand(parent: Command, opts: { hidden?: boolean } = {}): void {
+  const cmdOpts = opts.hidden ? { hidden: true } : {};
+  parent
+    .command('browse', cmdOpts)
+    .description('browse categories and the templates filed under them')
     .argument('[category]', 'category to list directly (skips the interactive picker)')
     .option('--json', 'emit machine-readable JSON', false)
-    .action(async (category: string | undefined, opts: { json: boolean }) => {
-      const config = await loadConfig();
-      const marketplaces = config.marketplaces ?? [];
+    .action(runBrowseCommand);
+}
 
-      if (marketplaces.length === 0 && config.sources.length === 0) {
-        if (opts.json) {
-          process.stdout.write(`${JSON.stringify({ categories: [], warnings: [] }, null, 2)}\n`);
-          return;
-        }
-        const configPath = getDefaultConfigPath();
-        const example =
-          '  sources:\n    - path: ~/dev/hex-templates\n' +
-          '    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
-          '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
-        process.stdout.write(
-          `${brand.dim('No sources or marketplaces configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
-        );
-        return;
-      }
-
-      // A category argument lists it directly — no picker.
-      if (category !== undefined) {
-        const { results, warnings } = await browseCategoryAllSources(config, category);
-        if (opts.json) {
-          process.stdout.write(`${JSON.stringify({ category, results, warnings }, null, 2)}\n`);
-          return;
-        }
-        if (results.length === 0) {
-          process.stdout.write(`${brand.dim(`No templates in category "${category}".`)}\n`);
-        } else {
-          process.stdout.write(formatSearchTable(results));
-        }
-        writeWarnings(warnings);
-        return;
-      }
-
-      const { categories, warnings } = await listAllCategories(config);
-
-      if (opts.json) {
-        process.stdout.write(`${JSON.stringify({ categories, warnings }, null, 2)}\n`);
-        return;
-      }
-
-      if (categories.length === 0) {
-        process.stdout.write(`${brand.dim('No categories found.')}\n`);
-        writeWarnings(warnings);
-        return;
-      }
-
-      // Non-interactive (piped / no TTY): print the flat category list.
-      if (!process.stdout.isTTY) {
-        process.stdout.write(formatCategories(categories));
-        writeWarnings(warnings);
-        return;
-      }
-
-      // Interactive: pick a category, then drill down into its entries.
-      const picked = await select({
-        message: 'Browse which category?',
-        options: categories.map((c) => ({ value: c.name, label: `${c.name} (${c.count})` })),
-      });
-      if (isCancel(picked)) return;
-
-      const drill = await browseCategoryAllSources(config, picked as string);
-      if (drill.results.length === 0) {
-        process.stdout.write(`${brand.dim(`No templates in category "${picked}".`)}\n`);
-      } else {
-        process.stdout.write(formatSearchTable(drill.results));
-      }
-      writeWarnings([...warnings, ...drill.warnings]);
-    });
+/** Legacy `hex browse` — hidden alias of `hex hive browse` (M15.1). */
+export function registerBrowse(program: Command): void {
+  buildBrowseCommand(program, { hidden: true });
 }

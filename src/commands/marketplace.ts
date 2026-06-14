@@ -14,21 +14,33 @@ import {
  * runs on every PR to gate schema correctness (kebab-case names, semver
  * tags, no duplicate packages/versions, strict-key rejection, …).
  */
+/** The `validate` action body — shared by the `hive` subcommand + legacy alias. */
+export async function runValidateCommand(pathArg: string | undefined): Promise<void> {
+  const path = resolve(pathArg ?? MARKETPLACE_YAML_FILENAME);
+  const result = await validateMarketplaceFile(path);
+  writeValidationReport(path, result);
+  if (!result.ok) process.exitCode = 1;
+}
+
+/** Attach the `validate` subcommand to a parent (M15.1). */
+export function buildValidateCommand(parent: Command): void {
+  parent
+    .command('validate')
+    .description('schema-validate a marketplace.yaml catalogue file')
+    .argument('[path]', `path to a marketplace.yaml (defaults to ./${MARKETPLACE_YAML_FILENAME})`)
+    .action(runValidateCommand);
+}
+
+/**
+ * Legacy `hex marketplace validate` — kept as a **hidden** alias of
+ * `hex hive validate` (M15.1) so catalogue-repo CI that calls
+ * `hex marketplace validate marketplace.yaml` keeps working unchanged.
+ */
 export function registerMarketplace(program: Command): void {
   const marketplace = program
-    .command('marketplace')
-    .description('operations on marketplace.yaml catalogue files');
-
-  marketplace
-    .command('validate')
-    .description('schema-validate a marketplace.yaml file')
-    .argument('[path]', `path to a marketplace.yaml (defaults to ./${MARKETPLACE_YAML_FILENAME})`)
-    .action(async (pathArg: string | undefined) => {
-      const path = resolve(pathArg ?? MARKETPLACE_YAML_FILENAME);
-      const result = await validateMarketplaceFile(path);
-      writeValidationReport(path, result);
-      if (!result.ok) process.exitCode = 1;
-    });
+    .command('marketplace', { hidden: true })
+    .description('operations on marketplace.yaml catalogue files (alias: hex hive validate)');
+  buildValidateCommand(marketplace);
 }
 
 export type ValidationIssue = {

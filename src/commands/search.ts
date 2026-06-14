@@ -115,50 +115,60 @@ export function formatSearchTable(results: AggregateCatalogueEntry[]): string {
     .join('');
 }
 
-export function registerSearch(program: Command): void {
-  program
-    .command('search')
-    .description('search templates + components across configured marketplaces')
+/** The `search` action body — shared by the `hive` subcommand + legacy alias. */
+export async function runSearchCommand(query: string, opts: { json: boolean }): Promise<void> {
+  const config = await loadConfig();
+  const marketplaces = config.marketplaces ?? [];
+
+  if (marketplaces.length === 0 && config.sources.length === 0) {
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify({ results: [], warnings: [] }, null, 2)}\n`);
+      return;
+    }
+    const configPath = getDefaultConfigPath();
+    const example =
+      '  sources:\n    - path: ~/dev/hex-templates\n' +
+      '    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
+      '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
+    process.stdout.write(
+      `${brand.dim('No sources or marketplaces configured.')}\n\nAdd one with ${brand.bold('hex hive add <url>')} or edit ${brand.bold(configPath)}:\n\n${example}`,
+    );
+    return;
+  }
+
+  const { results, warnings } = await searchAllSources(config, query);
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify({ results, warnings }, null, 2)}\n`);
+    return;
+  }
+
+  if (results.length === 0) {
+    process.stdout.write(`${brand.dim(`No matches for "${query}".`)}\n`);
+  } else {
+    process.stdout.write(formatSearchTable(results));
+  }
+
+  if (warnings.length > 0) {
+    process.stdout.write('\n');
+    for (const w of warnings) {
+      process.stdout.write(`${brand.warn(`! ${w}`)}\n`);
+    }
+  }
+}
+
+/** Attach the `search` subcommand to a parent (M15.1). */
+export function buildSearchCommand(parent: Command, opts: { hidden?: boolean } = {}): void {
+  const cmdOpts = opts.hidden ? { hidden: true } : {};
+  parent
+    .command('search', cmdOpts)
+    .description('search templates + components across configured sources')
     .argument('<query>', 'free-text search query')
     .option('--json', 'emit machine-readable JSON', false)
-    .action(async (query: string, opts: { json: boolean }) => {
-      const config = await loadConfig();
-      const marketplaces = config.marketplaces ?? [];
+    .action(runSearchCommand);
+}
 
-      if (marketplaces.length === 0 && config.sources.length === 0) {
-        if (opts.json) {
-          process.stdout.write(`${JSON.stringify({ results: [], warnings: [] }, null, 2)}\n`);
-          return;
-        }
-        const configPath = getDefaultConfigPath();
-        const example =
-          '  sources:\n    - path: ~/dev/hex-templates\n' +
-          '    - catalogue: https://github.com/textologylabs/hex-marketplace\n' +
-          '  marketplaces:\n    - id: hex\n      registry: https://registry.hex.dev/\n';
-        process.stdout.write(
-          `${brand.dim('No sources or marketplaces configured.')}\n\nAdd one to ${brand.bold(configPath)}:\n\n${example}`,
-        );
-        return;
-      }
-
-      const { results, warnings } = await searchAllSources(config, query);
-
-      if (opts.json) {
-        process.stdout.write(`${JSON.stringify({ results, warnings }, null, 2)}\n`);
-        return;
-      }
-
-      if (results.length === 0) {
-        process.stdout.write(`${brand.dim(`No matches for "${query}".`)}\n`);
-      } else {
-        process.stdout.write(formatSearchTable(results));
-      }
-
-      if (warnings.length > 0) {
-        process.stdout.write('\n');
-        for (const w of warnings) {
-          process.stdout.write(`${brand.warn(`! ${w}`)}\n`);
-        }
-      }
-    });
+/** Legacy `hex search` — hidden alias of `hex hive search` (M15.1). */
+export function registerSearch(program: Command): void {
+  buildSearchCommand(program, { hidden: true });
 }

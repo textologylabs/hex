@@ -5,6 +5,7 @@ import { VERSION, splash } from './brand/splash.js';
 import { registerBrowse } from './commands/browse.js';
 import { registerDeploy } from './commands/deploy.js';
 import { registerDoctor } from './commands/doctor.js';
+import { registerHive } from './commands/hive.js';
 import { registerLint } from './commands/lint.js';
 import { registerList } from './commands/list.js';
 import { registerMarketplace } from './commands/marketplace.js';
@@ -35,6 +36,7 @@ async function main() {
   registerBrowse(program);
   registerDeploy(program);
   registerDoctor(program);
+  registerHive(program);
   registerLint(program);
   registerList(program);
   registerMarketplace(program);
