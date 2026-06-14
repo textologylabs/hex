@@ -408,7 +408,7 @@ a declarative `rename` hook, and a sandboxed JS hook with its own prompt. The
   [`hex publish`](../reference/cli.md#hex-publish); see the
   [package format](../marketplace-package-format.md).
 - **Share it with an org** — put it in a git-catalogue marketplace so a team
-  pulls it by name: [set up a catalogue](./catalogue-for-org.md).
+  pulls it by name: [set up a catalogue](./catalogue-for-your-org.md).
 - **Add setup tasks** — declare a [`setup:` block](../reference/manifest.md#setup)
   so the user gets a guided post-scaffold checklist (install deps, wire CI, …).
 - **Compose it** — a [recipe](../reference/manifest.md#composes) can pull your
