@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Continuous integration for Hex itself (M15.2). Every pull request and
+# every push to main runs the full gate — typecheck + lint + test — so a
+# change that breaks the build can't reach main unnoticed. Before this,
+# the suite only ran at release time (the tag-triggered release.yml),
+# which left main unverified between releases.
+#
+# Distinct from the deploy workflow the M12.4 cicd-github-actions
+# provider EMITS into generated apps — this one guards the Hex repo.
+
+# Cancel an in-progress run when a new commit lands on the same ref, so a
+# rapid push sequence doesn't pile up redundant jobs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20', '22']
+    name: check (node ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint + typecheck + test
+        run: npm run check
