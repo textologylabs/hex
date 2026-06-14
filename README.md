@@ -6,6 +6,22 @@ Status: **v0.9.0 — first npm release**. Phase 1 (render pipeline, recipes, hos
 
 Install: `npm install -g @hexology/hex` (or `npx --yes @hexology/hex@latest`) and run `hex`.
 
+## Quick start
+
+New to Hex? Follow **[Getting started](./docs/getting-started.md)** — the
+~10-minute path from install to a running scaffolded app:
+
+```sh
+npm install -g @hexology/hex
+git clone https://github.com/textologylabs/hex.git ~/hex-src
+hex new ~/hex-src/templates/vite-ts-spa my-app   # walk the prompts
+cd my-app && npm run dev                          # see it run
+```
+
+Reference docs: **[CLI commands](./docs/reference/cli.md)** ·
+**[Manifest fields](./docs/reference/manifest.md)** ·
+**[Security model](./docs/security.md)**.
+
 ## Configuring source roots
 
 Hex discovers templates by walking configured *source roots*. Add them
