@@ -21,8 +21,10 @@ import {
   resolveFromCatalogue,
 } from '../core/marketplace/catalogue-source.js';
 import { pickVersion } from '../core/marketplace/source.js';
+import { AnswersFileError, loadAnswersFile } from '../core/prompts/answers-file.js';
 import { createClackPrompter } from '../core/prompts/clack-prompter.js';
-import { runPrompts } from '../core/prompts/engine.js';
+import { PromptError, runPrompts } from '../core/prompts/engine.js';
+import { createNonInteractivePrompter } from '../core/prompts/non-interactive-prompter.js';
 import { PromptCancelledError } from '../core/prompts/types.js';
 import type { Answers, Prompter } from '../core/prompts/types.js';
 import { runRecipePrompts } from '../core/recipe/prompts.js';
@@ -85,11 +87,12 @@ export async function collectNewAnswers(
   bundle: ComponentBundle,
   prompter: Prompter,
   config: HexConfig,
+  supplied?: Answers,
 ): Promise<NewContext> {
   if (bundle.manifest.type === 'recipe') {
     const warnings: string[] = [];
     const resolved = await resolveRecipe(bundle, { config, warnings });
-    const answers = await runRecipePrompts(resolved, prompter);
+    const answers = await runRecipePrompts(resolved, prompter, {}, supplied);
     return { warnings, answers, resolved };
   }
   const answers = await runPrompts(
@@ -97,6 +100,7 @@ export async function collectNewAnswers(
     prompter,
     {},
     bundle.manifest.sections,
+    supplied,
   );
   return { warnings: [], answers };
 }
@@ -193,6 +197,10 @@ export function registerNew(program: Command): void {
     .option('-f, --force', 'overwrite a non-empty output directory', false)
     .option('--no-setup', 'skip the post-render interactive setup loop')
     .option(
+      '--answers <file>',
+      'render non-interactively, taking every prompt answer from a YAML file (for CI / reproducible scaffolds)',
+    )
+    .option(
       '--trust-local',
       'run JS hooks unsandboxed for local FileSource components (dev workflow; ignored for git/marketplace sources)',
       false,
@@ -201,10 +209,37 @@ export function registerNew(program: Command): void {
       async (
         templateArg: string | undefined,
         outputArg: string | undefined,
-        opts: { force: boolean; setup: boolean; trustLocal: boolean },
+        opts: { force: boolean; setup: boolean; trustLocal: boolean; answers?: string },
       ) => {
         process.stdout.write(`${splash()}\n`);
         clack.intro(brand.honeyBold(' hex new '));
+
+        // M15.17: `--answers <file>` renders non-interactively — every prompt
+        // is resolved from the file (or its default), and the post-render
+        // setup loop is left for `hex setup` rather than driven interactively.
+        const answersMode = opts.answers !== undefined;
+        if (answersMode && templateArg === undefined) {
+          clack.log.error(
+            '--answers requires a template argument — the interactive picker is unavailable in non-interactive mode',
+          );
+          clack.outro('aborted — pass a template path or name with --answers');
+          process.exitCode = 1;
+          return;
+        }
+        let supplied: Answers | undefined;
+        if (opts.answers !== undefined) {
+          try {
+            supplied = await loadAnswersFile(opts.answers);
+          } catch (err) {
+            if (err instanceof AnswersFileError) {
+              clack.log.error(err.message);
+              clack.outro('aborted — could not read --answers file');
+              process.exitCode = 1;
+              return;
+            }
+            throw err;
+          }
+        }
 
         const bundle = await resolveTemplate(templateArg);
         const typeLabel = bundle.manifest.type === 'recipe' ? 'Recipe' : 'Template';
@@ -215,8 +250,19 @@ export function registerNew(program: Command): void {
         const outputDir = await resolveOutputDir(outputArg);
         const config = await loadConfig();
 
-        const prompter = createClackPrompter();
-        const ctx = await collectNewAnswers(bundle, prompter, config);
+        const prompter = answersMode ? createNonInteractivePrompter() : createClackPrompter();
+        let ctx: NewContext;
+        try {
+          ctx = await collectNewAnswers(bundle, prompter, config, supplied);
+        } catch (err) {
+          if (answersMode && err instanceof PromptError) {
+            clack.log.error(err.message);
+            clack.outro('aborted — fix the --answers file and re-run');
+            process.exitCode = 1;
+            return;
+          }
+          throw err;
+        }
         for (const w of ctx.warnings) clack.log.warn(w);
 
         if (opts.trustLocal) {
@@ -243,7 +289,9 @@ export function registerNew(program: Command): void {
         }
 
         const plan = planPostRender(result, {
-          isTTY: Boolean(process.stdout.isTTY),
+          // Answers mode is non-interactive end-to-end: leave setup tasks
+          // pending for `hex setup` rather than driving the loop.
+          isTTY: Boolean(process.stdout.isTTY) && !answersMode,
           setup: opts.setup,
         });
 

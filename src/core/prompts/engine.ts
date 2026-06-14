@@ -51,6 +51,81 @@ function validatePath(def: PathPrompt, raw: string): string | undefined {
   return undefined;
 }
 
+/** The default value an unanswered prompt falls back to, or `undefined` if it has none. */
+function defaultFor(def: PromptDef): unknown {
+  switch (def.type) {
+    case 'multi':
+      return def.default ?? [];
+    case 'password':
+      return undefined;
+    default:
+      return 'default' in def ? def.default : undefined;
+  }
+}
+
+/**
+ * Non-interactive answer resolution (M15.17). Given a value supplied by an
+ * `--answers` file, coerce + validate it against the prompt's definition,
+ * reusing the same rules the interactive widgets enforce. Throws a
+ * {@link PromptError} naming the prompt on any mismatch — the answers file is
+ * the complete input, so a bad value fails loudly rather than falling back to
+ * a prompt.
+ */
+export function coerceSuppliedAnswer(p: Prompt, raw: unknown): unknown {
+  const def = p.def;
+  const fail = (msg: string): never => {
+    throw new PromptError(`answer for "${p.name}": ${msg}`);
+  };
+  switch (def.type) {
+    case 'string': {
+      if (typeof raw !== 'string') return fail('expected a string');
+      const err = validateString(def, raw);
+      if (err) return fail(err);
+      return raw;
+    }
+    case 'integer':
+    case 'number': {
+      if (typeof raw !== 'number' && typeof raw !== 'string') return fail('expected a number');
+      const s = String(raw);
+      const err = validateInteger(def as IntegerPrompt, s);
+      if (err) return fail(err);
+      return s.length === 0 ? undefined : Number(s);
+    }
+    case 'boolean': {
+      if (typeof raw !== 'boolean') return fail('expected true or false');
+      return raw;
+    }
+    case 'enum': {
+      const e = def as EnumPrompt;
+      if (typeof raw !== 'string' || !e.choices.includes(raw)) {
+        return fail(`must be one of: ${e.choices.join(', ')}`);
+      }
+      return raw;
+    }
+    case 'multi': {
+      const m = def as MultiPrompt;
+      if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string' || !m.choices.includes(v))) {
+        return fail(`must be a list drawn from: ${m.choices.join(', ')}`);
+      }
+      return raw;
+    }
+    case 'password': {
+      if (typeof raw !== 'string') return fail('expected a string');
+      return raw;
+    }
+    case 'path': {
+      if (typeof raw !== 'string') return fail('expected a string');
+      const err = validatePath(def as PathPrompt, raw);
+      if (err) return fail(err);
+      return raw;
+    }
+    default: {
+      const exhaustive: never = def;
+      return fail(`unsupported prompt type: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
 async function askPrompt(prompter: Prompter, p: Prompt): Promise<unknown> {
   const def = p.def;
   const message = def.description ?? p.name;
@@ -135,6 +210,7 @@ export async function runPrompts(
   prompter: Prompter,
   initial: Answers = {},
   sections?: Section[],
+  supplied?: Answers,
 ): Promise<Answers> {
   const answers: Answers = { ...initial };
   const plans = planSections(prompts, sections);
@@ -174,6 +250,24 @@ export async function runPrompts(
       const p = plan.prompts[j];
       if (!p) continue;
       if (p.def.when && !evalWhen(p.def.when, answers)) continue;
+      // M15.17: non-interactive answers mode. When `supplied` is provided,
+      // resolve every firing prompt from it (or its default) instead of
+      // asking — a required prompt with neither a supplied value nor a
+      // default fails loudly rather than hanging on a widget.
+      if (supplied) {
+        if (Object.prototype.hasOwnProperty.call(supplied, p.name)) {
+          answers[p.name] = coerceSuppliedAnswer(p, supplied[p.name]);
+        } else {
+          const fallback = defaultFor(p.def);
+          if (fallback === undefined && isRequired(p.def)) {
+            throw new PromptError(
+              `--answers: no value supplied for required prompt "${p.name}" (and it has no default)`,
+            );
+          }
+          answers[p.name] = fallback;
+        }
+        continue;
+      }
       if (sectioned) {
         prompter.progress?.({
           sectionIndex: i + 1,

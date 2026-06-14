@@ -84,6 +84,7 @@ hex new [template] [output] [flags]
 |------|---------|---------|
 | `-f`, `--force` | `false` | Overwrite a non-empty output directory. |
 | `--no-setup` | — | Skip the post-render interactive setup loop. |
+| `--answers <file>` | — | Render **non-interactively**: take every prompt answer from a YAML file (for CI / reproducible scaffolds). See below. |
 | `--trust-local` | `false` | Run JS hooks **unsandboxed** for local `file:` components (dev workflow). Ignored for git/marketplace sources. Also lifts the `run:` allowlist for local sources. |
 
 After rendering, Hex runs the manifest's [`setup`](./manifest.md#setup) tasks.
@@ -92,7 +93,23 @@ prompts to **Trust**, **Review each**, or **Skip** (see
 [docs/security.md](../security.md)). In a non-interactive context they are left
 pending for [`hex setup`](#hex-setup).
 
-**Exit codes** — `0` on success; `1` on error.
+**`--answers <file>`** makes `hex new` fully non-interactive. The file is a YAML
+mapping of prompt name → value; recipe-child answers nest under the slot key
+(e.g. `api: { port: 8080 }`). Any prompt you omit falls back to its default;
+supplied values are validated against the manifest (type, `pattern`, `min`/`max`,
+enum membership). A **required** prompt with no default and no supplied value, a
+bad value, or an unreadable file fails with a clear message and a non-zero exit
+— it never hangs waiting for input. The post-render setup loop is left pending
+for [`hex setup`](#hex-setup). Requires an explicit `[template]` argument (no
+interactive picker). Hook-defined prompts aren't covered by the answers file
+yet.
+
+```sh
+hex new ./templates/vite-ts-spa my-app --answers answers.yaml
+```
+
+**Exit codes** — `0` on success; `1` on error (including a bad/missing
+`--answers` file or a missing required answer).
 
 ### `hex list`
 

@@ -95,8 +95,9 @@ Section 2 of 2 — Licence
   flat list of prompts with no section headers.
 
 > **`hex new` is interactive** — it asks these questions in your terminal, so
-> run it at a real prompt (a TTY). There's no non-interactive/answers-file mode
-> yet, so it isn't suited to CI or piped/headless shells.
+> run it at a real prompt (a TTY). For CI, scripts, or reproducible scaffolds,
+> supply answers up front instead — see [Scaffold non-interactively](#scaffold-non-interactively-ci--scripts)
+> below.
 
 Hex renders the project into `my-app/`.
 
@@ -142,6 +143,36 @@ npm run dev
 
 Vite prints a local URL (typically `http://localhost:5173`). Open it — you have
 a running, freshly scaffolded SPA. 🎉
+
+## Scaffold non-interactively (CI / scripts)
+
+For CI, automation, or a reproducible scaffold you can check into git, skip the
+prompts entirely with `--answers <file>`. Write a YAML file of prompt name →
+value:
+
+```yaml
+# answers.yaml
+project_name: my-spa
+description: A scaffolded SPA
+author: CI Bot
+license: Apache-2.0
+```
+
+Then render headless:
+
+```sh
+hex new ~/hex-src/templates/vite-ts-spa my-app --answers answers.yaml
+```
+
+Hex asks nothing, applies the answers (any prompt you omit falls back to its
+default), and leaves setup tasks pending for `hex setup`. Answers are validated
+against the template — an out-of-range value, an unknown enum choice, or a
+missing **required** answer fails with a clear message and a non-zero exit code
+(it never hangs waiting for input), so it's safe to gate a pipeline on.
+
+> `--answers` needs an explicit template argument (there's no interactive
+> picker in non-interactive mode). Hook-defined prompts aren't covered by the
+> answers file yet — a template that uses them still needs a terminal.
 
 ## What just happened
 
