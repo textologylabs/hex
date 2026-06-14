@@ -116,6 +116,12 @@ export type ValidateTasksOpts = {
   sourceKind: 'file' | 'git';
   /** When true AND `sourceKind === 'file'`, the allowlist is lifted. */
   trustLocal: boolean;
+  /**
+   * The effective allowlist (M15.3). Defaults to {@link RUN_COMMAND_ALLOWLIST};
+   * callers pass the config-resolved list so an org can tighten (an empty
+   * list rejects every `run:` task) or extend it.
+   */
+  allowlist?: readonly string[];
 };
 
 export function validateSetupTasksAllowlist(
@@ -123,17 +129,19 @@ export function validateSetupTasksAllowlist(
   opts: ValidateTasksOpts,
 ): void {
   if (opts.sourceKind === 'file' && opts.trustLocal) return;
+  const allowlist = opts.allowlist ?? RUN_COMMAND_ALLOWLIST;
   for (const task of tasks) {
     if (task.run === undefined) continue;
     const { cmd } = parseRunCommand(task.run);
-    if (!RUN_COMMAND_ALLOWLIST.includes(cmd)) {
-      const allowlist = RUN_COMMAND_ALLOWLIST.join(', ');
+    if (!allowlist.includes(cmd)) {
+      const shown =
+        allowlist.length > 0 ? allowlist.join(', ') : '(empty — all run: tasks blocked)';
       const tail =
         opts.sourceKind === 'file'
           ? 'Pass --trust-local to bypass for local FileSource templates.'
-          : 'Templates from git / catalogue / marketplace sources cannot bypass the allowlist.';
+          : 'Add the binary to your config trust.allowlist, or run the task manually.';
       throw new SetupExecutorError(
-        `setup task "${task.id}" wants to run "${cmd}" which isn't on the safe allowlist (${allowlist}). ${tail}`,
+        `setup task "${task.id}" wants to run "${cmd}" which isn't on the allowlist (${shown}). ${tail}`,
       );
     }
   }

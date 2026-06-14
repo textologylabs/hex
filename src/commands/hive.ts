@@ -4,7 +4,7 @@ import { loadCatalogueProviders } from '../core/catalogue/catalogue-providers.js
 import { createMarketplaceCatalogue } from '../core/catalogue/marketplace.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
-import { type NewSource, addSource, removeSource } from '../core/config/write.js';
+import { type NewSource, addSource, removeSource, trustSource } from '../core/config/write.js';
 import { buildBrowseCommand } from './browse.js';
 import { buildValidateCommand } from './marketplace.js';
 import { buildSearchCommand } from './search.js';
@@ -35,7 +35,7 @@ export function registerHive(program: Command): void {
   buildValidateCommand(hive);
 }
 
-type AddOpts = { ref?: string; git?: boolean; path?: boolean };
+type AddOpts = { ref?: string; git?: boolean; path?: boolean; trust?: boolean };
 
 /** `hex hive add <url>` — append a source to config.yaml (catalogue by default). */
 function buildHiveAddCommand(parent: Command): void {
@@ -46,6 +46,7 @@ function buildHiveAddCommand(parent: Command): void {
     .option('--ref <ref>', 'pin a git ref (branch / tag / sha)')
     .option('--git', 'add as a plain git template source instead of a catalogue', false)
     .option('--path', 'add as a local filesystem path source', false)
+    .option('--trust', 'also trust this source to auto-run its setup tasks (M15.3)', false)
     .action(async (url: string, opts: AddOpts) => {
       const entry = toNewSource(url, opts);
       const { added, configPath } = await addSource(entry);
@@ -56,7 +57,18 @@ function buildHiveAddCommand(parent: Command): void {
           }\n${brand.dim(`  → ${configPath}`)}\n`,
         );
       } else {
-        process.stdout.write(`${brand.dim(`${url} is already configured — nothing to do.`)}\n`);
+        process.stdout.write(`${brand.dim(`${url} is already configured.`)}\n`);
+      }
+      // `--trust` vouches for a remote source so its `run:` setup tasks
+      // auto-run without the per-scaffold trust prompt. Local `path:`
+      // sources are implicitly trusted, so the flag is a no-op there.
+      if (opts.trust && entry.kind !== 'path') {
+        const { added: trusted } = await trustSource(url);
+        process.stdout.write(
+          trusted
+            ? `${brand.done('✓')} trusted ${url} ${brand.dim('(its setup tasks may auto-run)')}\n`
+            : `${brand.dim(`${url} was already trusted.`)}\n`,
+        );
       }
     });
 }

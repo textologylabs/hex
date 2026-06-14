@@ -203,4 +203,24 @@ describe('runRitualTask', () => {
     const outcome = await runRitualTask({ id: 't', title: 'Test', run: 'npm test' }, baseOpts(s));
     expect(outcome).toEqual({ kind: 'ran', exitCode: 7 });
   });
+
+  it('requireConfirm — a run:-only task confirms before spawning (review-each, M15.3)', async () => {
+    const s = scripted();
+    const outcome = await runRitualTask(
+      { id: 't', title: 'Install', run: 'npm install' },
+      { ...baseOpts(s), requireConfirm: true },
+    );
+    expect(outcome).toEqual({ kind: 'ran', exitCode: 0 });
+    expect(s.events.map((e) => e.kind)).toEqual(['narrate', 'confirm', 'spawn']);
+  });
+
+  it('requireConfirm — declining a run:-only task skips the spawn', async () => {
+    const s = scripted({ confirmYes: false });
+    const outcome = await runRitualTask(
+      { id: 't', title: 'Install', run: 'npm install' },
+      { ...baseOpts(s), requireConfirm: true },
+    );
+    expect(outcome).toEqual({ kind: 'declined' });
+    expect(s.events.find((e) => e.kind === 'spawn')).toBeUndefined();
+  });
 });

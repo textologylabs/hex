@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../../src/core/config/load.js';
-import { addSource, removeSource } from '../../../src/core/config/write.js';
+import { addSource, removeSource, trustSource } from '../../../src/core/config/write.js';
 
 let dir: string;
 
@@ -112,5 +112,37 @@ describe('removeSource', () => {
     expect(res.removed).toBe(0);
     const config = await loadConfig(opts());
     expect(config.sources).toHaveLength(1);
+  });
+});
+
+describe('trustSource', () => {
+  it('creates trust.sources and adds the identifier', async () => {
+    const res = await trustSource('https://x.test/cat', opts());
+    expect(res.added).toBe(true);
+
+    const raw = await readFile(join(dir, 'config.yaml'), 'utf8');
+    expect(raw).toContain('trust:');
+    expect(raw).toContain('- https://x.test/cat');
+
+    const config = await loadConfig(opts());
+    expect(config.trust?.sources).toEqual(['https://x.test/cat']);
+  });
+
+  it('is idempotent — re-trusting is a no-op', async () => {
+    await trustSource('https://x.test/cat', opts());
+    const res = await trustSource('https://x.test/cat', opts());
+    expect(res.added).toBe(false);
+    const config = await loadConfig(opts());
+    expect(config.trust?.sources).toEqual(['https://x.test/cat']);
+  });
+
+  it('appends to an existing trusted list and preserves sources', async () => {
+    await addSource({ kind: 'catalogue', url: 'https://x.test/cat' }, opts());
+    await trustSource('https://x.test/cat', opts());
+    await trustSource('https://y.test/cat', opts());
+
+    const config = await loadConfig(opts());
+    expect(config.trust?.sources).toEqual(['https://x.test/cat', 'https://y.test/cat']);
+    expect(config.sources).toContainEqual({ kind: 'catalogue', url: 'https://x.test/cat' });
   });
 });

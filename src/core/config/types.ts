@@ -15,6 +15,18 @@ export type GitSourceRoot = { kind: 'git'; url: string; ref?: string };
 export type CatalogueSourceRoot = { kind: 'catalogue'; url: string; ref?: string };
 export type SourceRootEntry = FileSourceRoot | GitSourceRoot | CatalogueSourceRoot;
 
+/**
+ * Trust policy (M15.3) — governs whether a template's `run:` setup
+ * tasks may auto-execute. `allowlist` overrides the built-in safe binary
+ * list (`[]` locks everything down); `sources` lists remote source URLs
+ * the user vouches for. Both optional; absent fields fall back to
+ * defaults in `resolveTrustPolicy`.
+ */
+export type TrustConfig = {
+  allowlist?: string[];
+  sources?: string[];
+};
+
 export type HexConfig = {
   sources: SourceRootEntry[];
   /**
@@ -23,4 +35,6 @@ export type HexConfig = {
    * `loadConfig` always populates it — read it as `?? []`.
    */
   marketplaces?: MarketplaceConfig[];
+  /** Trust policy for `run:` setup-task execution (M15.3). Optional. */
+  trust?: TrustConfig;
 };

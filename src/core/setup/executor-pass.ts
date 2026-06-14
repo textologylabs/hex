@@ -47,6 +47,12 @@ export type ExecutorPassOpts = {
    * compatibility with the M14.7 unit tests.
    */
   ritualEffects?: RitualEffects;
+  /**
+   * "Review each" mode (M15.3) — confirm every `run:` task individually,
+   * not just the batch. Set when auto-running an untrusted remote
+   * source's tasks. Threaded into `runRitualTask`.
+   */
+  requireConfirm?: boolean;
   /** Generated-app root for the atomic checklist updates. Defaults to `cwd`. */
   rootDir?: string;
   /**
@@ -109,6 +115,7 @@ export async function runExecutorPass(
         cwd: opts.cwd,
         ritualEffects,
         runEffects: effects,
+        ...(opts.requireConfirm && { requireConfirm: true }),
       },
     );
     const success = ritualOutcomeSucceeded(outcome);

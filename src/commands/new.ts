@@ -11,6 +11,7 @@ import {
 import { type Checklist, checklistFromTasks, writeChecklist } from '../core/checklist/index.js';
 import { loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
+import { trustSource } from '../core/config/write.js';
 import { type TemplateEntry, discoverTemplates } from '../core/discovery/index.js';
 import { buildLockfile, writeLockfile } from '../core/lockfile/index.js';
 import type { SetupTask } from '../core/manifest/types.js';
@@ -36,6 +37,7 @@ import {
 } from '../core/setup/executor-pass.js';
 import type { RitualOutcome } from '../core/setup/ritual.js';
 import { SetupExecutorError, validateSetupTasksAllowlist } from '../core/setup/run.js';
+import { type TrustPolicy, classifySource, resolveTrustPolicy } from '../core/setup/trust.js';
 import { type ComponentBundle, loadFromPath } from '../core/sources/file-source.js';
 import {
   defaultRitualEffects,
@@ -264,8 +266,14 @@ export function registerNew(program: Command): void {
         // git child's `run:` declarations to strict allowlist, even when
         // the user passed `--trust-local`. The root's `--trust-local`
         // gate lifts only for FileSource bundles.
+        const trustPolicy = resolveTrustPolicy(config);
         try {
-          validateBundleAllowlistRecursive(bundle, ctx.resolved, opts.trustLocal);
+          validateBundleAllowlistRecursive(
+            bundle,
+            ctx.resolved,
+            opts.trustLocal,
+            trustPolicy.allowlist,
+          );
         } catch (err) {
           if (err instanceof SetupExecutorError) {
             clack.log.error(err.message);
@@ -284,10 +292,28 @@ export function registerNew(program: Command): void {
           return;
         }
 
+        // M15.3: gate auto-execution of `run:`/`open:` tasks on source
+        // trust. A local (file) source — or a remote source the user has
+        // vouched for in `trust.sources` — auto-runs as before. An
+        // untrusted remote source's tasks run code from a stranger, so we
+        // ask the user how to proceed rather than executing silently.
+        const runMode = await decideRunMode({
+          bundle,
+          templateArg,
+          policy: trustPolicy,
+          actionableCount: countActionableTasks(plan.initial),
+        });
+        if (runMode === 'skip') {
+          clack.outro(
+            `${plan.pendingCount} setup tasks pending — review the template, then run ${brand.bold('hex setup')} from ${outputDir}`,
+          );
+          return;
+        }
+
         // M14.7: offer to auto-execute every actionable (`run:`/`open:`)
         // pending task. Successful runs are marked done atomically; failures
         // stay pending and drop into the interactive loop below.
-        const afterPass = await maybeAutoExecutePass(outputDir, plan.initial);
+        const afterPass = await maybeAutoExecutePass(outputDir, plan.initial, runMode === 'review');
 
         const setupResult = await runSetupSession(
           { rootDir: outputDir, checklist: afterPass },
@@ -343,7 +369,62 @@ export function planPostRender(
  * knows which command produced any spawned output the prompt is about
  * to occlude.
  */
-async function maybeAutoExecutePass(outputDir: string, initial: Checklist): Promise<Checklist> {
+/** Auto-run decision for a source: run normally, confirm each, or skip. */
+export type RunMode = 'auto' | 'review' | 'skip';
+
+/**
+ * Decide how a template's actionable setup tasks should run (M15.3),
+ * prompting only when the source is an untrusted remote one. A trusted
+ * source (local, or remote in `trust.sources`) runs in `auto` mode with
+ * no extra prompt. An untrusted remote source gets the trust / review /
+ * skip choice; picking "trust" persists the source to config so the
+ * prompt never recurs for it.
+ */
+async function decideRunMode(args: {
+  bundle: ComponentBundle;
+  templateArg?: string;
+  policy: TrustPolicy;
+  actionableCount: number;
+}): Promise<RunMode> {
+  if (args.actionableCount === 0) return 'auto';
+
+  const trust = classifySource({
+    sourceKind: args.bundle.sourceKind,
+    identifier: sourceTrustIdentifier(args.bundle, args.templateArg),
+    policy: args.policy,
+  });
+  if (trust.kind === 'trusted') return 'auto';
+
+  clack.log.warn(
+    `${brand.bold(trust.identifier)} is an ${brand.bold('untrusted remote source')} — its setup tasks run code on your machine.`,
+  );
+  const choice = await clack.select({
+    message: 'How do you want to proceed?',
+    options: [
+      {
+        value: 'trust',
+        label: 'Trust this source & run its tasks',
+        hint: 'remembers it in config',
+      },
+      { value: 'review', label: 'Review each command before it runs', hint: 'this run only' },
+      { value: 'skip', label: 'Skip — leave tasks pending', hint: 'run later with hex setup' },
+    ],
+    initialValue: 'review',
+  });
+  if (clack.isCancel(choice) || choice === 'skip') return 'skip';
+  if (choice === 'trust') {
+    const { configPath } = await trustSource(trust.identifier);
+    clack.log.success(`Trusted ${trust.identifier} ${brand.dim(`→ ${configPath}`)}`);
+    return 'auto';
+  }
+  return 'review';
+}
+
+async function maybeAutoExecutePass(
+  outputDir: string,
+  initial: Checklist,
+  reviewEach = false,
+): Promise<Checklist> {
   const count = countActionableTasks(initial);
   if (count === 0) return initial;
 
@@ -356,6 +437,7 @@ async function maybeAutoExecutePass(outputDir: string, initial: Checklist): Prom
   const result: ExecutorPassResult = await runExecutorPass(initial, {
     cwd: outputDir,
     ritualEffects: defaultRitualEffects,
+    ...(reviewEach && { requireConfirm: true }),
     // narrate (in ritualEffects) prints the structured plan per task;
     // the per-task "running X" line that lived here in M14.7 would
     // duplicate that, so it's gone. Completion outcomes still surface
@@ -391,16 +473,30 @@ function validateBundleAllowlistRecursive(
   bundle: ComponentBundle,
   resolved: ResolvedRecipe | undefined,
   trustLocal: boolean,
+  allowlist: readonly string[],
 ): void {
   validateSetupTasksAllowlist(bundle.manifest.setup?.tasks ?? [], {
     sourceKind: bundle.sourceKind,
     trustLocal,
+    allowlist,
   });
   if (resolved) {
     for (const child of resolved.children.values()) {
-      validateBundleAllowlistRecursive(child.bundle, child.resolved, trustLocal);
+      validateBundleAllowlistRecursive(child.bundle, child.resolved, trustLocal, allowlist);
     }
   }
+}
+
+/**
+ * The identifier a remote source is matched against `trust.sources`
+ * (M15.3). A catalogue-resolved bundle uses the catalogue repo URL (the
+ * same value `hex hive add` writes); a bundle loaded directly from a git
+ * argument uses that argument. `file` sources need no identifier.
+ */
+function sourceTrustIdentifier(bundle: ComponentBundle, templateArg?: string): string | undefined {
+  if (bundle.catalogueSource) return bundle.catalogueSource.catalogueUrl;
+  if (bundle.sourceKind === 'git') return templateArg;
+  return undefined;
 }
 
 function looksLikePath(arg: string): boolean {
