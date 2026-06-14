@@ -28,7 +28,7 @@ Verify:
 
 ```sh
 hex --version
-hex doctor      # prints Node version, platform, terminal capabilities
+hex doctor      # prints Node version, platform, and terminal info
 ```
 
 ## 2. Get a template to scaffold from
@@ -46,7 +46,8 @@ app. You can pass that path straight to `hex new`.
 
 > **Tip — make templates discoverable.** Instead of typing a path every time,
 > register the directory as a *source root* so `hex new` (with no argument)
-> lists it interactively:
+> lists it interactively. The `--path` flag says "this is a **local
+> directory**" (a bare `hex hive add <url>` adds a remote *catalogue* instead):
 >
 > ```sh
 > hex hive add --path ~/hex-src/templates
@@ -68,20 +69,34 @@ Hex confirms what it's about to render:
 Template: vite-ts-spa @0.1.0
 ```
 
-Then walks you through the prompts, grouped into sections:
+Then, because this template groups its prompts into
+[sections](./reference/manifest.md#sections), it shows an outline up front and
+walks each section in turn. Question counters are **per section** (`(1/3)` =
+first of three in this section):
 
 ```
-Basics
-  (1/4) Package name (e.g. my-app)   ›  my-app
-  (2/4) Short description            ›  My first Hex app
-  (3/4) Author                       ›  Ada Lovelace
-Licence
-  (4/4) License                      ›  MIT
+2 sections
+  1. Basics (3 questions)
+  2. Licence (1 question)
+
+Section 1 of 2 — Basics
+  (1/3) Package name (e.g. my-app)   ›  my-app
+  (2/3) Short description            ›  My first Hex app
+  (3/3) Author                       ›  Ada Lovelace
+
+Section 2 of 2 — Licence
+  (1/1) License                      ›  MIT
 ```
 
 - **Package name** is validated against `^[a-z][a-z0-9-]*$` — lower-case,
   starts with a letter.
 - The others have sensible defaults; press Enter to accept.
+- Sectioning is opt-in: a template that doesn't declare `sections:` just shows a
+  flat list of prompts with no section headers.
+
+> **`hex new` is interactive** — it asks these questions in your terminal, so
+> run it at a real prompt (a TTY). There's no non-interactive/answers-file mode
+> yet, so it isn't suited to CI or piped/headless shells.
 
 Hex renders the project into `my-app/`.
 
