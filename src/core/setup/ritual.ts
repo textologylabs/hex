@@ -127,6 +127,13 @@ export type RunRitualTaskOpts = {
   cwd: string;
   ritualEffects: RitualEffects;
   runEffects: RunEffects;
+  /**
+   * "Review each" mode (M15.3). When true, a `run:`-only task is also
+   * confirmed individually before it spawns — used for an untrusted
+   * remote source's tasks, so every command is gated, not just the
+   * batch. `open:`-bearing tasks already confirm regardless.
+   */
+  requireConfirm?: boolean;
 };
 
 /**
@@ -153,6 +160,12 @@ export async function runRitualTask(
   }
 
   if (task.run !== undefined) {
+    // Review-each mode: confirm a run:-only task individually. Open-
+    // bearing tasks already passed their own confirm above.
+    if (opts.requireConfirm && task.open === undefined) {
+      const ok = await ritualEffects.confirm(task);
+      if (!ok) return { kind: 'declined' };
+    }
     try {
       const { cmd, args } = parseRunCommand(task.run);
       const exitCode = await runEffects.spawn(cmd, args, cwd);

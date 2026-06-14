@@ -77,7 +77,7 @@ describe('validateSetupTasksAllowlist', () => {
   it('does NOT lift the allowlist for a non-FileSource template even with --trust-local', () => {
     expect(() =>
       validateSetupTasksAllowlist([evil], { sourceKind: 'git', trustLocal: true }),
-    ).toThrow(/cannot bypass/);
+    ).toThrow(/trust\.allowlist/);
   });
 
   it('passes over tasks without `run:` (open-only or detail-only)', () => {

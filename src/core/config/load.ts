@@ -96,6 +96,7 @@ export async function loadConfig(opts?: LoadConfigOpts): Promise<HexConfig> {
       return { kind: 'git' as const, url: s.git, ref: s.ref };
     }),
     marketplaces: result.data.marketplaces.map((m) => ({ id: m.id, registry: m.registry })),
+    ...(result.data.trust !== undefined && { trust: result.data.trust }),
   };
 }
 

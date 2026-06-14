@@ -130,4 +130,43 @@ export async function removeSource(
   return { removed, configPath };
 }
 
+/** `added: false` means the source was already trusted (no-op). */
+export type TrustSourceResult = { added: boolean; configPath: string };
+
+/**
+ * Add `identifier` to `trust.sources` in `config.yaml` (M15.3),
+ * vouching for a remote source so its `run:` setup tasks may auto-run.
+ * Idempotent — an already-trusted source is a no-op. Creates the
+ * `trust:` map and `sources:` sequence if they don't exist yet.
+ */
+export async function trustSource(
+  identifier: string,
+  opts?: LoadConfigOpts,
+): Promise<TrustSourceResult> {
+  const configPath = getDefaultConfigPath(opts);
+  const doc = await readDocument(configPath);
+
+  const current = doc.getIn(['trust', 'sources']) as YAMLSeq | undefined;
+  const existing =
+    current && typeof (current as { toJSON?: () => unknown }).toJSON === 'function'
+      ? (current.toJSON() as unknown)
+      : [];
+  if (Array.isArray(existing) && existing.includes(identifier)) {
+    return { added: false, configPath };
+  }
+
+  if (current && 'items' in current) {
+    current.flow = false;
+    current.add(identifier);
+  } else {
+    doc.setIn(['trust', 'sources'], [identifier]);
+    const seq = doc.getIn(['trust', 'sources']) as YAMLSeq | undefined;
+    if (seq && 'flow' in seq) seq.flow = false;
+  }
+
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFileAtomic(configPath, String(doc));
+  return { added: true, configPath };
+}
+
 export { sourceIdentifier };

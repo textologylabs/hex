@@ -31,6 +31,18 @@ const marketplaceSchema = z.object({
   registry: z.string().min(1),
 });
 
+// Trust policy (M15.3). Governs whether a template's `run:` setup tasks
+// may execute. `allowlist` overrides the built-in safe binary list (an
+// empty array locks everything down — no auto-run); `sources` lists the
+// remote (git/catalogue) source identifiers the user vouches for, whose
+// `run:` tasks may auto-execute without the per-scaffold trust prompt.
+const trustSchema = z.object({
+  /** Override the run-command allowlist. `[]` = no command may auto-run. */
+  allowlist: z.array(z.string().min(1)).optional(),
+  /** Remote source URLs trusted to auto-run their setup tasks. */
+  sources: z.array(z.string().min(1)).optional(),
+});
+
 export const hexConfigSchema = z
   .object({
     sources: z.array(sourceRootSchema).default([]),
@@ -40,6 +52,8 @@ export const hexConfigSchema = z
      * addresses disambiguate explicitly. See M9.4 / M9.5.
      */
     marketplaces: z.array(marketplaceSchema).default([]),
+    /** Trust policy for `run:` setup-task execution (M15.3). */
+    trust: trustSchema.optional(),
   })
   .superRefine((cfg, ctx) => {
     const seen = new Set<string>();
