@@ -55,25 +55,47 @@ export type RefreshOpts = {
   onComplete?: (result: RefreshResult) => void;
 };
 
-export function registerSources(program: Command): void {
-  const sources = program.command('sources').description('manage configured template source roots');
-
-  sources
-    .command('list', { isDefault: true })
+/**
+ * Attach the `list` subcommand to a parent (M15.1). Used both by the
+ * legacy `hex sources` alias and by the `hex hive` umbrella, so the two
+ * surfaces share one definition. `isDefault` makes it the parent's
+ * bare-invocation action (`hex hive` / `hex sources` → list).
+ */
+export function buildSourcesListCommand(parent: Command, opts: { isDefault?: boolean } = {}): void {
+  const cmdOpts: { isDefault?: boolean } = {};
+  if (opts.isDefault) cmdOpts.isDefault = true;
+  parent
+    .command('list', cmdOpts)
     .description('list configured sources with cache + drift status')
     .option('--json', 'emit machine-readable JSON', false)
-    .action(async (opts: { json: boolean }) => {
+    .action(async (o: { json: boolean }) => {
       const config = await loadConfig();
-      await runList(config, opts.json);
+      await runList(config, o.json);
     });
+}
 
-  sources
+/** Attach the `refresh` subcommand to a parent (M15.1). */
+export function buildSourcesRefreshCommand(parent: Command): void {
+  parent
     .command('refresh')
-    .description('force-refresh every git source root, ignoring the cache')
+    .description('force-refresh every git + catalogue source, ignoring the cache')
     .action(async () => {
       const config = await loadConfig();
       await runRefresh(config);
     });
+}
+
+/**
+ * Legacy `hex sources` command — kept as a **hidden** alias of the
+ * `hex hive` subcommands (M15.1) so existing muscle memory and scripts
+ * keep working. Discovery + source management now lives under `hex hive`.
+ */
+export function registerSources(program: Command): void {
+  const sources = program
+    .command('sources', { hidden: true })
+    .description('manage configured template source roots (alias: hex hive)');
+  buildSourcesListCommand(sources, { isDefault: true });
+  buildSourcesRefreshCommand(sources);
 }
 
 async function runList(config: HexConfig, asJson: boolean): Promise<void> {
