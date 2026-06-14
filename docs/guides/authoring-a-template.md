@@ -326,7 +326,9 @@ Point `hex new` at your bundle directory and an output path. Use
 hex new ./greeter /tmp/greet-out --trust-local
 ```
 
-Hex confirms the template, then walks your prompts. Answer them — pick
+`hex new` is interactive — run it at a real terminal (a TTY); there's no
+answers-file/headless mode yet. Hex confirms the template, then walks your
+prompts. Answer them — pick
 `bonjour`, say yes to `containerize`, choose `debug`, and give a repo coordinate
 like `acme/greet-svc` at the hook's question. You'll see the hook log:
 
