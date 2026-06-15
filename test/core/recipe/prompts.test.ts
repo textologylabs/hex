@@ -470,3 +470,118 @@ describe('runRecipePrompts — nested recipes', () => {
     });
   });
 });
+
+describe('runRecipePrompts — non-interactive answers mode (M15.17)', () => {
+  // Prompter that fails if reached: answers mode must resolve every prompt
+  // from the supplied map or a default.
+  const neverPrompter: Prompter = {
+    async text() {
+      throw new Error('widget reached in answers mode (text)');
+    },
+    async confirm() {
+      throw new Error('widget reached in answers mode (confirm)');
+    },
+    async select() {
+      throw new Error('widget reached in answers mode (select)');
+    },
+    async multiselect() {
+      throw new Error('widget reached in answers mode (multi)');
+    },
+    async password() {
+      throw new Error('widget reached in answers mode (password)');
+    },
+    note() {},
+  };
+
+  it('resolves recipe-level + namespaced child answers from the supplied map', async () => {
+    const recipeRoot = join(work, 'recipe');
+    const apiRoot = join(work, 'children', 'api');
+    const uiRoot = join(work, 'children', 'ui');
+
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      prompts: [{ app_name: { type: 'string', required: true } }],
+      composes: { api: 'file:../children/api', ui: 'file:../children/ui' },
+    });
+    await writeManifest(apiRoot, {
+      type: 'component',
+      name: 'api',
+      version: '0.1.0',
+      prompts: [{ port: { type: 'integer', default: 3000 } }],
+    });
+    await writeManifest(uiRoot, {
+      type: 'component',
+      name: 'ui',
+      version: '0.1.0',
+      prompts: [{ framework: { type: 'enum', choices: ['react', 'vue'], default: 'react' } }],
+    });
+
+    const resolved = await loadResolved(recipeRoot);
+    const answers = await runRecipePrompts(
+      resolved,
+      neverPrompter,
+      {},
+      {
+        app_name: 'shop',
+        api: { port: 8080 },
+        ui: { framework: 'vue' },
+      },
+    );
+
+    expect(answers).toEqual({
+      app_name: 'shop',
+      api: { port: 8080 },
+      ui: { framework: 'vue' },
+    });
+  });
+
+  it('falls back to a child prompt default when its namespaced value is omitted', async () => {
+    const recipeRoot = join(work, 'recipe');
+    const apiRoot = join(work, 'children', 'api');
+
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      prompts: [{ app_name: { type: 'string', required: true } }],
+      composes: { api: 'file:../children/api' },
+    });
+    await writeManifest(apiRoot, {
+      type: 'component',
+      name: 'api',
+      version: '0.1.0',
+      prompts: [{ port: { type: 'integer', default: 3000 } }],
+    });
+
+    const resolved = await loadResolved(recipeRoot);
+    // No `api:` namespace supplied — the child's `port` should default.
+    const answers = await runRecipePrompts(resolved, neverPrompter, {}, { app_name: 'shop' });
+    expect(answers).toEqual({ app_name: 'shop', api: { port: 3000 } });
+  });
+
+  it('throws naming a required recipe-level prompt with no default', async () => {
+    const recipeRoot = join(work, 'recipe');
+    const apiRoot = join(work, 'children', 'api');
+
+    await writeManifest(recipeRoot, {
+      type: 'recipe',
+      name: 'demo',
+      version: '0.1.0',
+      prompts: [{ app_name: { type: 'string', required: true } }],
+      composes: { api: 'file:../children/api' },
+    });
+    await writeManifest(apiRoot, {
+      type: 'component',
+      name: 'api',
+      version: '0.1.0',
+      prompts: [{ port: { type: 'integer', default: 3000 } }],
+    });
+
+    const resolved = await loadResolved(recipeRoot);
+    await expect(runRecipePrompts(resolved, neverPrompter, {}, {})).rejects.toThrow(
+      /no value supplied for required prompt "app_name"/,
+    );
+  });
+});

@@ -2,6 +2,13 @@ import { runPrompts } from '../prompts/engine.js';
 import type { Answers, Prompter } from '../prompts/types.js';
 import type { ResolvedRecipe } from './resolve.js';
 
+/** A nested value from an answers file is usable as a child's supplied map only if it's a plain object. */
+function asAnswerRecord(value: unknown): Answers | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Answers)
+    : undefined;
+}
+
 /**
  * Drive prompt collection across a resolved recipe — recipe top-level
  * questions first, then each child's prompts in `composes:` declaration
@@ -34,6 +41,7 @@ export async function runRecipePrompts(
   resolved: ResolvedRecipe,
   prompter: Prompter,
   initial: Answers = {},
+  supplied?: Answers,
 ): Promise<Answers> {
   const answers: Answers = { ...initial };
   const recipeManifest = resolved.recipeBundle.manifest;
@@ -44,11 +52,19 @@ export async function runRecipePrompts(
       prompter,
       answers,
       recipeManifest.sections,
+      supplied,
     );
     Object.assign(answers, recipeAnswers);
   }
 
   for (const [key, child] of resolved.children) {
+    // M15.17: a child's supplied answers are namespaced under its slot key
+    // in the answers file (matching the answer-tree shape above). In answers
+    // mode (supplied !== undefined) a missing namespace becomes an empty map
+    // so the child still resolves non-interactively (defaults, or a loud
+    // error) rather than falling back to a prompt.
+    const childSupplied =
+      supplied === undefined ? undefined : (asAnswerRecord(supplied[key]) ?? {});
     if (child.resolved) {
       // Recipe child — recursively run the nested recipe's prompts. The
       // nested recipe sees outer scope (recipe-level + completed siblings)
@@ -56,7 +72,12 @@ export async function runRecipePrompts(
       // contributions (everything new vs. the snapshot) into answers[key].
       prompter.note?.('', `Configuring "${key}"`);
       const inheritedKeys = new Set(Object.keys(answers));
-      const nestedContext = await runRecipePrompts(child.resolved, prompter, { ...answers });
+      const nestedContext = await runRecipePrompts(
+        child.resolved,
+        prompter,
+        { ...answers },
+        childSupplied,
+      );
       const nestedContributions: Answers = {};
       for (const k of Object.keys(nestedContext)) {
         if (!inheritedKeys.has(k)) nestedContributions[k] = nestedContext[k];
@@ -81,6 +102,7 @@ export async function runRecipePrompts(
       prompter,
       { ...answers },
       childManifest.sections,
+      childSupplied,
     );
 
     const childAnswers: Answers = {};

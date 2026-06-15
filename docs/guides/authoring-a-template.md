@@ -326,9 +326,8 @@ Point `hex new` at your bundle directory and an output path. Use
 hex new ./greeter /tmp/greet-out --trust-local
 ```
 
-`hex new` is interactive — run it at a real terminal (a TTY); there's no
-answers-file/headless mode yet. Hex confirms the template, then walks your
-prompts. Answer them — pick
+`hex new` is interactive — run it at a real terminal (a TTY). Hex confirms the
+template, then walks your prompts. Answer them — pick
 `bonjour`, say yes to `containerize`, choose `debug`, and give a repo coordinate
 like `acme/greet-svc` at the hook's question. You'll see the hook log:
 
@@ -376,6 +375,13 @@ ask for a log level — the `when:` did its job.
 > **Iterating.** Edit the template, re-run `hex new` into a fresh output dir
 > (add `-f` to overwrite a non-empty one). There's no build step for a template
 > — it's just files.
+
+> **Headless testing.** `hex new --answers <file.yaml>` renders without prompts
+> (handy for a golden-output test of your template) — see
+> [Scaffold non-interactively](../getting-started.md#scaffold-non-interactively-ci--scripts).
+> One caveat for *this* template: the answers file doesn't yet cover
+> **hook-defined** prompts (our `github_coord`), so a template with hook prompts
+> still needs a terminal for that part.
 
 ## Step 10 — validate with `hex lint`
 

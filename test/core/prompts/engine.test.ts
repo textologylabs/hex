@@ -336,3 +336,113 @@ describe('runPrompts — sections', () => {
     expect(events.some((e) => e.kind === 'progress')).toBe(false);
   });
 });
+
+describe('runPrompts — non-interactive answers mode (M15.17)', () => {
+  // A prompter that fails the test if any widget is reached: in answers mode
+  // every firing prompt must resolve from `supplied` or its default.
+  const neverPrompter: Prompter = {
+    async text() {
+      throw new Error('widget reached in answers mode (text)');
+    },
+    async confirm() {
+      throw new Error('widget reached in answers mode (confirm)');
+    },
+    async select() {
+      throw new Error('widget reached in answers mode (select)');
+    },
+    async multiselect() {
+      throw new Error('widget reached in answers mode (multi)');
+    },
+    async password() {
+      throw new Error('widget reached in answers mode (password)');
+    },
+  };
+
+  const prompts: Prompt[] = [
+    { name: 'name', def: { type: 'string', required: true, pattern: '^[a-z][a-z0-9-]*$' } },
+    { name: 'license', def: { type: 'enum', choices: ['MIT', 'Apache-2.0'], default: 'MIT' } },
+    { name: 'features', def: { type: 'multi', choices: ['a', 'b', 'c'], default: [] } },
+    { name: 'port', def: { type: 'integer', default: 3000, min: 1, max: 9999 } },
+    { name: 'debug', def: { type: 'boolean', default: false } },
+  ];
+
+  it('resolves every prompt from supplied values without touching the prompter', async () => {
+    const answers = await runPrompts(prompts, neverPrompter, {}, undefined, {
+      name: 'my-app',
+      license: 'Apache-2.0',
+      features: ['a', 'c'],
+      port: 8080,
+      debug: true,
+    });
+    expect(answers).toEqual({
+      name: 'my-app',
+      license: 'Apache-2.0',
+      features: ['a', 'c'],
+      port: 8080,
+      debug: true,
+    });
+  });
+
+  it('falls back to each prompt default when a value is omitted', async () => {
+    const answers = await runPrompts(prompts, neverPrompter, {}, undefined, { name: 'my-app' });
+    expect(answers).toEqual({
+      name: 'my-app',
+      license: 'MIT',
+      features: [],
+      port: 3000,
+      debug: false,
+    });
+  });
+
+  it('throws naming the prompt when a required value with no default is missing', async () => {
+    await expect(runPrompts(prompts, neverPrompter, {}, undefined, {})).rejects.toThrow(
+      /no value supplied for required prompt "name"/,
+    );
+  });
+
+  it('rejects an out-of-set enum value', async () => {
+    await expect(
+      runPrompts(prompts, neverPrompter, {}, undefined, { name: 'ok', license: 'BSD' }),
+    ).rejects.toThrow(/answer for "license": must be one of: MIT, Apache-2\.0/);
+  });
+
+  it('rejects a value of the wrong type', async () => {
+    await expect(runPrompts(prompts, neverPrompter, {}, undefined, { name: 42 })).rejects.toThrow(
+      /answer for "name": expected a string/,
+    );
+  });
+
+  it('enforces string pattern on supplied values', async () => {
+    await expect(
+      runPrompts(prompts, neverPrompter, {}, undefined, { name: 'Bad Name' }),
+    ).rejects.toThrow(/answer for "name": must match pattern/);
+  });
+
+  it('enforces integer bounds on supplied values', async () => {
+    await expect(
+      runPrompts(prompts, neverPrompter, {}, undefined, { name: 'ok', port: 99999 }),
+    ).rejects.toThrow(/answer for "port": must be <= 9999/);
+  });
+
+  it('rejects a multi value with a member outside the choice set', async () => {
+    await expect(
+      runPrompts(prompts, neverPrompter, {}, undefined, { name: 'ok', features: ['a', 'z'] }),
+    ).rejects.toThrow(/answer for "features": must be a list drawn from/);
+  });
+
+  it('ignores a supplied value for a when:-skipped prompt', async () => {
+    const conditional: Prompt[] = [
+      { name: 'containerize', def: { type: 'boolean', default: false } },
+      {
+        name: 'log_level',
+        def: { type: 'enum', choices: ['info', 'debug'], when: 'containerize' },
+      },
+    ];
+    const answers = await runPrompts(conditional, neverPrompter, {}, undefined, {
+      containerize: false,
+      log_level: 'debug',
+    });
+    expect(answers).toEqual({ containerize: false });
+    expect('log_level' in answers).toBe(false);
+  });
+});
