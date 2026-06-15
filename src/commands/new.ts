@@ -271,104 +271,129 @@ export function registerNew(program: Command): void {
           );
         }
 
+        // M15.5: wrap the render-and-after phase so a mid-render crash exits
+        // friendly (naming the partial output dir + a recovery hint) instead
+        // of propagating raw to the top-level catch. A user cancel
+        // (PromptCancelledError) is re-thrown to reach the clean cancel path.
         const spinner = clack.spinner();
-        spinner.start('rendering');
-        const result = await executeNewRender(bundle, outputDir, ctx, {
-          force: opts.force,
-          prompter,
-          trustLocal: opts.trustLocal,
-        });
-        const summaryTail =
-          result.childCount > 0
-            ? ` across ${result.childCount} child${result.childCount === 1 ? '' : 'ren'} + recipe root`
-            : '';
-        spinner.stop(`rendered ${result.written} files${summaryTail}`);
-
-        if (result.renamed > 0 || result.deleted > 0) {
-          clack.log.info(`hooks: ${result.renamed} renamed, ${result.deleted} deleted`);
-        }
-
-        const plan = planPostRender(result, {
-          // Answers mode is non-interactive end-to-end: leave setup tasks
-          // pending for `hex setup` rather than driving the loop.
-          isTTY: Boolean(process.stdout.isTTY) && !answersMode,
-          setup: opts.setup,
-        });
-
-        if (plan.kind === 'no-tasks') {
-          clack.outro(brand.done(`done — ${outputDir}`));
-          return;
-        }
-
-        // Write the initial checklist before doing anything else, so a hard
-        // exit at this point still leaves the project in a recoverable state.
-        await writeChecklist(outputDir, plan.initial);
-
-        if (plan.setupMessage) {
-          clack.note(plan.setupMessage, 'Post-scaffold setup');
-        }
-
-        // M14.7: validate `run:` commands before any execution path can fire.
-        // Each bundle in the tree is checked against ITS OWN sourceKind: a
-        // FileSource recipe composing a git component still subjects the
-        // git child's `run:` declarations to strict allowlist, even when
-        // the user passed `--trust-local`. The root's `--trust-local`
-        // gate lifts only for FileSource bundles.
-        const trustPolicy = resolveTrustPolicy(config);
+        let rendered = false;
         try {
-          validateBundleAllowlistRecursive(
-            bundle,
-            ctx.resolved,
-            opts.trustLocal,
-            trustPolicy.allowlist,
-          );
-        } catch (err) {
-          if (err instanceof SetupExecutorError) {
-            clack.log.error(err.message);
+          spinner.start('rendering');
+          const result = await executeNewRender(bundle, outputDir, ctx, {
+            force: opts.force,
+            prompter,
+            trustLocal: opts.trustLocal,
+          });
+          const summaryTail =
+            result.childCount > 0
+              ? ` across ${result.childCount} child${result.childCount === 1 ? '' : 'ren'} + recipe root`
+              : '';
+          spinner.stop(`rendered ${result.written} files${summaryTail}`);
+          rendered = true;
+
+          if (result.renamed > 0 || result.deleted > 0) {
+            clack.log.info(`hooks: ${result.renamed} renamed, ${result.deleted} deleted`);
+          }
+
+          const plan = planPostRender(result, {
+            // Answers mode is non-interactive end-to-end: leave setup tasks
+            // pending for `hex setup` rather than driving the loop.
+            isTTY: Boolean(process.stdout.isTTY) && !answersMode,
+            setup: opts.setup,
+          });
+
+          if (plan.kind === 'no-tasks') {
+            clack.outro(brand.done(`done — ${outputDir}`));
+            return;
+          }
+
+          // Write the initial checklist before doing anything else, so a hard
+          // exit at this point still leaves the project in a recoverable state.
+          await writeChecklist(outputDir, plan.initial);
+
+          if (plan.setupMessage) {
+            clack.note(plan.setupMessage, 'Post-scaffold setup');
+          }
+
+          // M14.7: validate `run:` commands before any execution path can fire.
+          // Each bundle in the tree is checked against ITS OWN sourceKind: a
+          // FileSource recipe composing a git component still subjects the
+          // git child's `run:` declarations to strict allowlist, even when
+          // the user passed `--trust-local`. The root's `--trust-local`
+          // gate lifts only for FileSource bundles.
+          const trustPolicy = resolveTrustPolicy(config);
+          try {
+            validateBundleAllowlistRecursive(
+              bundle,
+              ctx.resolved,
+              opts.trustLocal,
+              trustPolicy.allowlist,
+            );
+          } catch (err) {
+            if (err instanceof SetupExecutorError) {
+              clack.log.error(err.message);
+              clack.outro(
+                `setup task allowlist violation — files written but no commands will run. Inspect ${outputDir} or pass --trust-local for local templates.`,
+              );
+              return;
+            }
+            throw err;
+          }
+
+          if (!plan.interactive) {
             clack.outro(
-              `setup task allowlist violation — files written but no commands will run. Inspect ${outputDir} or pass --trust-local for local templates.`,
+              `${plan.pendingCount} setup tasks pending — run ${brand.bold('hex setup')} from ${outputDir}`,
             );
             return;
           }
-          throw err;
-        }
 
-        if (!plan.interactive) {
-          clack.outro(
-            `${plan.pendingCount} setup tasks pending — run ${brand.bold('hex setup')} from ${outputDir}`,
+          // M15.3: gate auto-execution of `run:`/`open:` tasks on source
+          // trust. A local (file) source — or a remote source the user has
+          // vouched for in `trust.sources` — auto-runs as before. An
+          // untrusted remote source's tasks run code from a stranger, so we
+          // ask the user how to proceed rather than executing silently.
+          const runMode = await decideRunMode({
+            bundle,
+            templateArg,
+            policy: trustPolicy,
+            actionableCount: countActionableTasks(plan.initial),
+          });
+          if (runMode === 'skip') {
+            clack.outro(
+              `${plan.pendingCount} setup tasks pending — review the template, then run ${brand.bold('hex setup')} from ${outputDir}`,
+            );
+            return;
+          }
+
+          // M14.7: offer to auto-execute every actionable (`run:`/`open:`)
+          // pending task. Successful runs are marked done atomically; failures
+          // stay pending and drop into the interactive loop below.
+          const afterPass = await maybeAutoExecutePass(
+            outputDir,
+            plan.initial,
+            runMode === 'review',
           );
+
+          const setupResult = await runSetupSession(
+            { rootDir: outputDir, checklist: afterPass },
+            createClackPrompter(),
+            { runTask: makeInteractiveRunner(outputDir) },
+          );
+          printSetupOutro(setupResult);
+        } catch (err) {
+          if (err instanceof PromptCancelledError) throw err;
+          if (!rendered) spinner.stop('render failed');
+          clack.log.error(
+            `hex new failed ${rendered ? 'after rendering' : 'during render'}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          clack.outro(
+            `A partial project may remain at ${outputDir} — inspect or delete it, then re-run. From inside it, \`hex doctor\` reports its state.`,
+          );
+          process.exitCode = 1;
           return;
         }
-
-        // M15.3: gate auto-execution of `run:`/`open:` tasks on source
-        // trust. A local (file) source — or a remote source the user has
-        // vouched for in `trust.sources` — auto-runs as before. An
-        // untrusted remote source's tasks run code from a stranger, so we
-        // ask the user how to proceed rather than executing silently.
-        const runMode = await decideRunMode({
-          bundle,
-          templateArg,
-          policy: trustPolicy,
-          actionableCount: countActionableTasks(plan.initial),
-        });
-        if (runMode === 'skip') {
-          clack.outro(
-            `${plan.pendingCount} setup tasks pending — review the template, then run ${brand.bold('hex setup')} from ${outputDir}`,
-          );
-          return;
-        }
-
-        // M14.7: offer to auto-execute every actionable (`run:`/`open:`)
-        // pending task. Successful runs are marked done atomically; failures
-        // stay pending and drop into the interactive loop below.
-        const afterPass = await maybeAutoExecutePass(outputDir, plan.initial, runMode === 'review');
-
-        const setupResult = await runSetupSession(
-          { rootDir: outputDir, checklist: afterPass },
-          createClackPrompter(),
-          { runTask: makeInteractiveRunner(outputDir) },
-        );
-        printSetupOutro(setupResult);
       },
     );
 }
