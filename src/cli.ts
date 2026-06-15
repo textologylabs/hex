@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { brand } from './brand/colors.js';
 import { VERSION, splash } from './brand/splash.js';
+import { describeTopLevelError } from './cli-errors.js';
 import { registerBrowse } from './commands/browse.js';
 import { registerDeploy } from './commands/deploy.js';
 import { registerDoctor } from './commands/doctor.js';
@@ -51,6 +52,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(brand.error(`error: ${err instanceof Error ? err.message : String(err)}`));
-  process.exit(1);
+  const report = describeTopLevelError(err);
+  console.error(report.cancelled ? brand.dim(report.message) : brand.error(report.message));
+  process.exit(report.exitCode);
 });
