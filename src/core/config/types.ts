@@ -27,6 +27,14 @@ export type TrustConfig = {
   sources?: string[];
 };
 
+/**
+ * Self-update policy (M15.7). `check: false` disables the startup update
+ * check centrally (the enterprise / air-gapped knob). Absent = enabled.
+ */
+export type UpdateConfig = {
+  check?: boolean;
+};
+
 export type HexConfig = {
   sources: SourceRootEntry[];
   /**
@@ -37,4 +45,6 @@ export type HexConfig = {
   marketplaces?: MarketplaceConfig[];
   /** Trust policy for `run:` setup-task execution (M15.3). Optional. */
   trust?: TrustConfig;
+  /** Self-update policy (M15.7). Optional; absent = update check enabled. */
+  update?: UpdateConfig;
 };

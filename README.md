@@ -88,6 +88,25 @@ cwd, like `git`/`npm`).
 inside a generated app. `hex new --no-setup` skips the post-render loop
 entirely.
 
+## Self-update
+
+On an **interactive** launch Hex checks npm for a newer version and offers to
+self-update. It's skipped entirely in CI / pipes / non-TTY shells, the network
+check is bounded by a 2-second timeout, and any failure is swallowed — it never
+blocks or errors the command you ran. Disable it two ways:
+
+- **Per shell / container image:** set `HEX_NO_UPDATE_CHECK=1` in the environment.
+- **Centrally:** add this to `~/.hex/config.yaml` — a platform team can ship the
+  opt-out for locked-down / air-gapped environments without relying on the env var:
+
+  ```yaml
+  update:
+    check: false
+  ```
+
+See [`docs/security.md`](./docs/security.md#4-network-calls) for the full network
+posture.
+
 ## Try it
 
 ```sh
