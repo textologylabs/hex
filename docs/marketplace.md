@@ -148,3 +148,24 @@ of them. Block + override policy unions across both surfaces. The
 catalogue model, and vice versa.
 
 This page exists to make that coexistence cheap when M9.9 finally lands.
+
+## CLI surface while parked (M15.6)
+
+Because the registry isn't hosted, the CLI fences the hosted-registry
+surface for 1.0 so it can't be mistaken for a ready feature:
+
+- **`hex publish` is hidden** from `--help` and marked `[experimental]`.
+  It still works against a `--registry` you run yourself (the reference
+  server in `registry/`), but prints an experimental notice pointing at
+  the git-catalogue model first. Sharing templates today goes through
+  [a git-catalogue](./guides/catalogue-for-your-org.md), not this.
+- **Resolution + signature verification** (`resolveAddress` + `trustedKeys`
+  in `core/marketplace/`) is built and unit-tested but **wired to no
+  command** — `hex new` resolves through `path:` / `git:` / `catalogue:`
+  sources only. The signed-package path activates when the registry is
+  picked back up; until then it is not a user-facing feature.
+- **Upgrade limitation:** an app scaffolded from a marketplace artifact
+  can't be reconstructed for `hex upgrade` (`pristine.ts` fails loudly
+  rather than guess). Since `hex new` never resolves a marketplace
+  source today, no real lockfile records one — but it's noted here so
+  the constraint is explicit when the registry lands.
