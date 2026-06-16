@@ -54,7 +54,8 @@ describe('loadConfig', () => {
     const first = cfg.sources[0];
     expect(first?.kind).toBe('path');
     if (first?.kind === 'path') {
-      expect(first.path).toMatch(/dev\/templates$/);
+      // Separator-agnostic: `join` yields `\` on Windows, `/` on POSIX.
+      expect(first.path).toMatch(/dev[\\/]templates$/);
       expect(first.path).not.toContain('~');
     }
   });
