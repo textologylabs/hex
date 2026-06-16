@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { isAbsolute, sep } from 'node:path';
+import { isAbsolute } from 'node:path';
 import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
@@ -572,14 +572,23 @@ function sourceTrustIdentifier(bundle: ComponentBundle, templateArg?: string): s
   return undefined;
 }
 
-function looksLikePath(arg: string): boolean {
+/**
+ * Whether `arg` should be loaded as a filesystem path rather than resolved
+ * as a template name / catalogue address. We deliberately do NOT treat "any
+ * string containing a slash" as a path — a qualified catalogue address like
+ * `acme/api` contains `/` but must fall through to catalogue resolution
+ * (M15.4). A relative path with a separator is still caught when it actually
+ * exists (`existsSync`); a non-existent slashed string isn't loadable as a
+ * path anyway, so letting it fall through to discovery/catalogue gives the
+ * right error. Leading `./`, `../`, `/`, `~`, and `isAbsolute` (covers
+ * Windows `C:\…` / `C:/…`) remain explicit path signals.
+ */
+export function looksLikePath(arg: string): boolean {
   return (
     arg.startsWith('.') ||
     arg.startsWith('/') ||
     arg.startsWith('~') ||
     isAbsolute(arg) ||
-    arg.includes(sep) ||
-    arg.includes('/') ||
     existsSync(arg)
   );
 }
