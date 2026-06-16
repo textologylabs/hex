@@ -97,6 +97,7 @@ export async function loadConfig(opts?: LoadConfigOpts): Promise<HexConfig> {
     }),
     marketplaces: result.data.marketplaces.map((m) => ({ id: m.id, registry: m.registry })),
     ...(result.data.trust !== undefined && { trust: result.data.trust }),
+    ...(result.data.update !== undefined && { update: result.data.update }),
   };
 }
 

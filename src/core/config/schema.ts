@@ -43,6 +43,15 @@ const trustSchema = z.object({
   sources: z.array(z.string().min(1)).optional(),
 });
 
+// Self-update policy (M15.7). `check: false` disables the startup update
+// check centrally — the enterprise / air-gapped knob a platform team can
+// ship in a shared config, so disabling doesn't depend on every shell
+// exporting `HEX_NO_UPDATE_CHECK=1`. Absent = enabled (still gated on a
+// TTY and the env var).
+const updateSchema = z.object({
+  check: z.boolean().optional(),
+});
+
 export const hexConfigSchema = z
   .object({
     sources: z.array(sourceRootSchema).default([]),
@@ -54,6 +63,8 @@ export const hexConfigSchema = z
     marketplaces: z.array(marketplaceSchema).default([]),
     /** Trust policy for `run:` setup-task execution (M15.3). */
     trust: trustSchema.optional(),
+    /** Self-update policy (M15.7). `check: false` disables the startup check. */
+    update: updateSchema.optional(),
   })
   .superRefine((cfg, ctx) => {
     const seen = new Set<string>();

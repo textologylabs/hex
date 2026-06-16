@@ -152,12 +152,29 @@ fetch rather than proceeding unverified.
 
 ## 4. Network calls
 
-Hex makes one outbound call you should know about: on every interactive
+Hex makes one outbound call you should know about: on every **interactive**
 run it checks `registry.npmjs.org` for a newer version and offers to
-self-update. Disable it with `HEX_NO_UPDATE_CHECK=1` (recommended for
-locked-down / air-gapped / proxied environments). A failed or blocked
-update check never blocks the command you actually ran. No telemetry or
-analytics are collected.
+self-update. The check only runs at an interactive terminal — in CI, a
+pipe, or any non-TTY shell it is skipped entirely, so automation never
+triggers it. The fetch is bounded by a 2-second timeout and **every**
+failure (offline, proxied, refused, slow, malformed) is swallowed: a
+failed or blocked update check never blocks, delays beyond the timeout,
+or errors the command you actually ran. The update itself (`npm i -g`)
+only runs after you confirm at the prompt. No telemetry or analytics are
+collected.
+
+**Disabling it** (recommended for locked-down / air-gapped / proxied
+environments) — two ways:
+
+- **Per shell / image:** set `HEX_NO_UPDATE_CHECK=1` in the environment.
+- **Centrally:** add the following to `~/.hex/config.yaml` so a platform
+  team can ship the opt-out in a shared config without relying on every
+  shell exporting the env var:
+
+  ```yaml
+  update:
+    check: false
+  ```
 
 Source fetches go only to the git remotes / registries you configure in
 `~/.hex/config.yaml`, through your system `git` (so SSH agents and
