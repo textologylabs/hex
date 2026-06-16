@@ -13,9 +13,20 @@ import { loadFromPath } from '../core/sources/file-source.js';
  * tar; the registry validates it, signs it with the marketplace key,
  * and ingests it (marketplace-as-signer — see M9.1). Authentication is
  * a bearer publish token, not a signing key: developers hold no keys.
+ *
+ * M15.6 — FENCED as experimental for 1.0. The hosted-registry model is
+ * parked (no registry is hosted by default), so the command is hidden
+ * from `--help` and prints an experimental notice on run, pointing at
+ * the supported git-catalogue model (`hex hive` + a `marketplace.yaml`
+ * repo). It still works against a `--registry` you run yourself.
  */
 
 const EXCLUDED = new Set(['.git', 'node_modules', 'dist']);
+
+const EXPERIMENTAL_NOTICE =
+  'hex publish targets the experimental hosted-registry model, which is parked for 1.0 — no registry is hosted by default. ' +
+  'To share templates today, use a git-catalogue: see docs/guides/catalogue-for-your-org.md. ' +
+  'Continuing against the --registry you provided.';
 
 /**
  * Pack a bundle directory into a gzipped tar buffer, skipping `.git`,
@@ -44,8 +55,12 @@ export async function createBundleTarball(dir: string): Promise<Buffer> {
 
 export function registerPublish(program: Command): void {
   program
-    .command('publish')
-    .description('publish a component or recipe to a marketplace registry')
+    // M15.6: hidden from `--help` while the hosted registry is parked — the
+    // git-catalogue model (`hex hive`) is the supported sharing path for 1.0.
+    .command('publish', { hidden: true })
+    .description(
+      '[experimental] publish a component or recipe to a hosted marketplace registry (parked — see docs/guides/catalogue-for-your-org.md)',
+    )
     .argument('<dir>', 'component or recipe directory to publish')
     .requiredOption('--registry <url>', 'registry base URL (e.g. https://registry.hex.dev/)')
     .option('--token <token>', 'publish token (or set HEX_PUBLISH_TOKEN)')
@@ -61,6 +76,8 @@ export function registerPublish(program: Command): void {
           category?: string[];
         },
       ) => {
+        process.stderr.write(`${brand.dim(EXPERIMENTAL_NOTICE)}\n`);
+
         const token = opts.token ?? process.env.HEX_PUBLISH_TOKEN;
         if (!token) {
           process.stderr.write(
