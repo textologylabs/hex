@@ -27,11 +27,19 @@ describe('terminal capability detection', () => {
     expect(detectCapabilities({ HEX_FORCE_UNICODE: '1', LANG: 'C' }).unicode).toBe(true);
   });
 
-  it('detects UTF-8 from LANG', () => {
-    expect(detectCapabilities({ LANG: 'en_US.UTF-8' }).unicode).toBe(true);
+  it('detects UTF-8 from LANG (POSIX platforms)', () => {
+    expect(detectCapabilities({ LANG: 'en_US.UTF-8' }, 'linux').unicode).toBe(true);
   });
 
-  it('falls back when locale is non-UTF-8', () => {
-    expect(detectCapabilities({ LANG: 'C' }).unicode).toBe(false);
+  it('falls back when locale is non-UTF-8 (POSIX platforms)', () => {
+    expect(detectCapabilities({ LANG: 'C' }, 'linux').unicode).toBe(false);
+  });
+
+  it('on Windows uses terminal signals, not LANG', () => {
+    // Windows doesn't surface UTF-8 via LANG — a UTF-8 LANG alone is not enough.
+    expect(detectCapabilities({ LANG: 'en_US.UTF-8' }, 'win32').unicode).toBe(false);
+    // …but a modern terminal (Windows Terminal / VS Code) is detected.
+    expect(detectCapabilities({ WT_SESSION: '1' }, 'win32').unicode).toBe(true);
+    expect(detectCapabilities({ TERM_PROGRAM: 'vscode' }, 'win32').unicode).toBe(true);
   });
 });

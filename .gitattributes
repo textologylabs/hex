@@ -1,0 +1,14 @@
+# Normalise line endings to LF in the working tree on every platform
+# (M15.4). Without this, a Windows checkout converts source files to
+# CRLF via core.autocrlf, and biome's format check fails the CI `lint`
+# step on the carriage returns even though the suite itself passes.
+* text=auto eol=lf
+
+# Binary types git must never touch.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.wasm binary
+*.gz binary
+*.tgz binary

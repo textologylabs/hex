@@ -276,7 +276,10 @@ async function renderFixtures(
       await writeFile(targetPath, renderText(data.toString('utf8'), answers), 'utf8');
     }
 
-    written.push(join('fixtures', renderedRel));
+    // POSIX separator to match the main walk's `relativePath` contract —
+    // `written` (and the lockfile keys derived from it) stay `/`-delimited
+    // on every platform, not OS-native (`join` would yield `\` on Windows).
+    written.push(`fixtures/${renderedRel}`);
   }
 
   return written;

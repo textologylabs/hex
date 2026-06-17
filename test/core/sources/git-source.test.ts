@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type GitResolveResult,
   GitSourceError,
@@ -18,9 +18,19 @@ let work: string;
 
 beforeEach(async () => {
   work = await mkdtemp(join(tmpdir(), 'hex-git-source-'));
+  // Pin core.autocrlf=false for EVERY git invocation in this process —
+  // including the clone/checkout `resolveGitSource` runs internally — via
+  // git's env-config protocol. Without this, a runner with the Windows
+  // default (autocrlf=true) rewrites fixture `\n` to `\r\n` on checkout and
+  // the byte-exact content assertions fail. Tests git mechanics, not the
+  // host's line-ending policy.
+  vi.stubEnv('GIT_CONFIG_COUNT', '1');
+  vi.stubEnv('GIT_CONFIG_KEY_0', 'core.autocrlf');
+  vi.stubEnv('GIT_CONFIG_VALUE_0', 'false');
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(work, { recursive: true, force: true });
 });
 
