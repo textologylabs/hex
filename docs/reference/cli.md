@@ -18,7 +18,7 @@ hex <command> [args] [flags]
 
 On startup `hex` performs a best-effort **self-update check** (a network call to
 the npm registry). Set `HEX_NO_UPDATE_CHECK=1` to disable it — see
-[docs/security.md](../security.md#self-update).
+[docs/security.md](../security.md#4-network-calls).
 
 ## Exit codes
 
@@ -308,7 +308,7 @@ hex hive info <package> [--json]
 ### `hex hive validate`
 
 Schema-validate a `marketplace.yaml` catalogue file. Useful in a catalogue
-repo's CI. See [docs/marketplace-catalogue.md](../marketplace-catalogue.md).
+repo's CI. See [docs/marketplace-catalogue.md](./marketplace-catalogue.md).
 
 ```
 hex hive validate [path]
@@ -328,7 +328,7 @@ hex hive validate [path]
 
 Check a stubbable component template against the prod-clean conventions (the
 stub engine isolated in devDependencies, separate prod/dev entry points, etc.).
-See [docs/stubbable-components.md](../stubbable-components.md).
+See [docs/stubbable-components.md](../guides/stubbable-components.md).
 
 ```
 hex lint <path>
@@ -343,7 +343,7 @@ hex lint <path>
 ### `hex publish`
 
 Publish a component or recipe to a marketplace registry as a signed `hexpkg`.
-See [docs/marketplace-package-format.md](../marketplace-package-format.md).
+See [docs/marketplace-package-format.md](./marketplace-package-format.md).
 
 ```
 hex publish <dir> --registry <url> [flags]
@@ -382,4 +382,4 @@ still work but no longer appear in `--help`. Prefer the `hive` forms.
 
 - [Manifest field reference](./manifest.md) — what `hex new` / `hex lint` read.
 - [docs/security.md](../security.md) — the `run:` trust model and hook sandbox.
-- [docs/upgrade.md](../upgrade.md) · [docs/deploy.md](../deploy.md) · [docs/marketplace-catalogue.md](../marketplace-catalogue.md).
+- [docs/upgrade.md](../upgrade.md) · [docs/deploy.md](../deploy.md) · [docs/marketplace-catalogue.md](./marketplace-catalogue.md).

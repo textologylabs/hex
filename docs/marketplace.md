@@ -1,12 +1,12 @@
 # Hex marketplace — the hosted-registry path
 
 > **Status: parked.** The git-catalogue model
-> ([`docs/marketplace-catalogue.md`](./marketplace-catalogue.md)) is the
+> ([`docs/marketplace-catalogue.md`](./reference/marketplace-catalogue.md)) is the
 > ship-now answer for company-internal and OSS catalogues. This page
 > documents the *more ambitious* hosted-registry path that was built up
 > through M9 and parked at M9.9 (publishing + frontdoor + deploy). The
 > code lives in `registry/`, the package format is specified in
-> [`docs/marketplace-package-format.md`](./marketplace-package-format.md),
+> [`docs/marketplace-package-format.md`](./reference/marketplace-package-format.md),
 > and the deploy runbook is
 > [`docs/registry-deploy.md`](./registry-deploy.md). Together they form
 > the **complete spec** — this page is the index + the rationale for
@@ -39,7 +39,7 @@ Phase 1 (M9.1 → M9.8, all shipped):
 - **Package format** — `hexpkg/1`: gzipped tar of `artifact/` (the
   bundle) + `hexpkg.json` (per-file sha256 hashes + digest) +
   `hexpkg.sig` (Ed25519 detached signature over `hexpkg.json`). Format
-  decided in M9.1; spec in [`docs/marketplace-package-format.md`](./marketplace-package-format.md).
+  decided in M9.1; spec in [`docs/marketplace-package-format.md`](./reference/marketplace-package-format.md).
 - **MarketplaceSource** (M9.2) — `src/core/marketplace/source.ts`. HTTP
   fetcher; semver resolution against `<registry>/<name>/index.json`;
   tarball download + signature verification against pinned trusted
@@ -85,7 +85,7 @@ The git-catalogue model (M13) covers the immediate use cases:
 
 The hosted-registry path remains the right answer when the catalogue
 model breaks down (see "What this model is good for — and where it
-breaks down" in [`marketplace-catalogue.md`](./marketplace-catalogue.md)).
+breaks down" in [`marketplace-catalogue.md`](./reference/marketplace-catalogue.md)).
 There's no rush to land it ahead of demand.
 
 ## Unpark signals
@@ -110,7 +110,7 @@ the work is parked rather than abandoned.
 ## Picking it back up — what to read first
 
 1. **This page** — for the why and the index.
-2. **[`docs/marketplace-package-format.md`](./marketplace-package-format.md)**
+2. **[`docs/marketplace-package-format.md`](./reference/marketplace-package-format.md)**
    — the on-the-wire spec. `hexpkg/1` is frozen, so any new work
    inherits the format.
 3. **[`docs/registry-deploy.md`](./registry-deploy.md)** — the deploy

@@ -7,7 +7,7 @@ renamed file's edits flow into the renamed target instead of being
 orphaned.
 
 This page is the format + authoring guide. The user-facing flow is
-[`upgrade.md`](./upgrade.md).
+[`upgrade.md`](../upgrade.md).
 
 ## Where they live
 
@@ -162,10 +162,10 @@ conflicted, so it survives a pause.
 The cleanest dogfood: render the *previous* version, render the *new*
 version, then run an upgrade between them with a user-edited file in
 the middle. The integration test at
-[`test/integration/upgrade.test.ts`](../test/integration/upgrade.test.ts)
+[`test/integration/upgrade.test.ts`](../../test/integration/upgrade.test.ts)
 shows the pattern — stage three versions of a fixture template, render
 the user app at v1, edit it, upgrade to v3, assert the edit survived.
 
 For a quick sanity check on the migration file in isolation, the test
 suite covers each verb in
-[`test/core/upgrade/migration.test.ts`](../test/core/upgrade/migration.test.ts).
+[`test/core/upgrade/migration.test.ts`](../../test/core/upgrade/migration.test.ts).

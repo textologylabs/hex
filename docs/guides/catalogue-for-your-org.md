@@ -12,7 +12,7 @@ have them scaffold by name. By the end Acme engineers run
 `hex new acme/api my-service` and get the blessed template.
 
 For the underlying model and the full `marketplace.yaml` field set, see the
-[catalogue reference](../marketplace-catalogue.md). For the commands used here,
+[catalogue reference](../reference/marketplace-catalogue.md). For the commands used here,
 the [CLI reference](../reference/cli.md).
 
 ## The shape of it
@@ -252,7 +252,7 @@ later can pull a newer version when Acme publishes one.
 
 ## See also
 
-- [Catalogue reference](../marketplace-catalogue.md) — the full `marketplace.yaml`
+- [Catalogue reference](../reference/marketplace-catalogue.md) — the full `marketplace.yaml`
   field set, resolution order, and multi-catalogue aggregation.
 - [Authoring a template](./authoring-a-template.md) — build the packages your
   catalogue indexes.

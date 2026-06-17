@@ -41,7 +41,7 @@ Each `path` is walked one level deep for templates (directories with a
 `~/.hex/cache/git/...` (override with `HEX_CACHE_DIR`) on first use,
 then walked the same way. Each `catalogue:` URL is a git repo whose root
 carries a `marketplace.yaml` listing curated packages by namespace — see
-[`docs/marketplace-catalogue.md`](./docs/marketplace-catalogue.md).
+[`docs/marketplace-catalogue.md`](./docs/reference/marketplace-catalogue.md).
 
 `hex list` enumerates discovered templates. `hex sources` reports cache
 + drift status per source (no network on cache hit). `hex sources
@@ -141,7 +141,7 @@ Two ways to share templates beyond your laptop:
   `catalogue:` source — no server to run. The
   `templates/marketplace-catalogue` starter scaffolds one in seconds
   with a PR-gated `hex marketplace validate` CI workflow. See
-  [`docs/marketplace-catalogue.md`](./docs/marketplace-catalogue.md).
+  [`docs/marketplace-catalogue.md`](./docs/reference/marketplace-catalogue.md).
 - **Hosted registry** (parked at M9.9 — code complete, deploy not).
   A signed-tarball HTTP service for catalogues that grow past PR-review
   scale or need anonymous publish. The spec, runbook, and pickup notes
@@ -157,7 +157,7 @@ When your template ships a new version, `hex upgrade <new-template>`
 pulls the change into your working tree via a 3-way merge — clean
 changes land silently, conflicts come back with git-style markers, and
 your edits survive. See [`docs/upgrade.md`](./docs/upgrade.md) for the
-user-facing workflow, and [`docs/authoring-migrations.md`](./docs/authoring-migrations.md)
+user-facing workflow, and [`docs/authoring-migrations.md`](./docs/guides/authoring-migrations.md)
 for the format if you maintain a template.
 
 ## Scripts
