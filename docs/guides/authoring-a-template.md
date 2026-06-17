@@ -397,7 +397,7 @@ hex lint ./greeter
 Our greeter isn't stubbable, so lint confirms the manifest is valid and has
 nothing further to check. If you later add a `stub:` engine, lint enforces that
 the stub stays out of production dependencies — see
-[stubbable components](../stubbable-components.md). Either way, `hex lint` exits
+[stubbable components](./stubbable-components.md). Either way, `hex lint` exits
 non-zero on a failure, so it's a usable CI / marketplace gate.
 
 ## You're done
@@ -414,7 +414,7 @@ a declarative `rename` hook, and a sandboxed JS hook with its own prompt. The
   interactively. See the [CLI reference](../reference/cli.md#hex-hive-add).
 - **Publish it** — package and sign it for a registry with
   [`hex publish`](../reference/cli.md#hex-publish); see the
-  [package format](../marketplace-package-format.md).
+  [package format](../reference/marketplace-package-format.md).
 - **Share it with an org** — put it in a git-catalogue marketplace so a team
   pulls it by name: [set up a catalogue](./catalogue-for-your-org.md).
 - **Add setup tasks** — declare a [`setup:` block](../reference/manifest.md#setup)

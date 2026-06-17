@@ -6,8 +6,8 @@ rebase` would — clean changes apply silently, conflicts come back with
 the familiar `<<<<<<< ======= >>>>>>>` markers, and your edits survive.
 
 This page is the user-facing workflow. The format spec for what the
-upgrade reads and writes lives at [`lockfile-format.md`](./lockfile-format.md);
-authoring migrations is [`authoring-migrations.md`](./authoring-migrations.md).
+upgrade reads and writes lives at [`lockfile-format.md`](./reference/lockfile-format.md);
+authoring migrations is [`authoring-migrations.md`](./guides/authoring-migrations.md).
 
 ## What it does, in one paragraph
 
@@ -120,8 +120,96 @@ removal rather than a user addition.
 You almost never need to think about migrations as a *user* of a
 template — they're authored by whoever maintains the template you
 scaffolded from. The flow above is the same whether or not migrations
-ship. See [`authoring-migrations.md`](./authoring-migrations.md) if
+ship. See [`authoring-migrations.md`](./guides/authoring-migrations.md) if
 you're on the other side of that line.
+
+## A worked example, end to end
+
+The shortest real run that exercises both a clean apply *and* a conflict.
+Every block below is actual output.
+
+**1. Scaffold from v1 of a template** (a tiny `greeter` with a `README.md`
+and a `greet.txt`):
+
+```sh
+hex new ./greeter-v1 myapp --answers answers.yaml
+#   answers.yaml is just `project_name: myapp`
+```
+
+```
+◇  rendered 2 files
+└  done — myapp
+```
+
+The generated `myapp/greet.txt` reads `Hello from myapp!` and carries a
+`.hex/lockfile.yaml` pinned at `1.0.0`.
+
+**2. Edit a file.** You make `greet.txt` your own:
+
+```
+Hello from myapp! Have a great day.
+```
+
+You leave `README.md` untouched.
+
+**3. v2 of the template ships** — its `greet.txt` line changes to
+`Hello from myapp, welcome aboard!` (collides with your edit) and its
+`README.md` "Usage" line changes (you never touched it, so it'll apply
+cleanly). Point `hex upgrade` at it:
+
+```sh
+cd myapp
+hex upgrade ../greeter-v2
+```
+
+```
+hex upgrade 1.0.0 → 2.0.0  (0 added, 1 merged, 0 deleted)
+✗ 1 file(s) have conflicts — resolve the markers, then
+    greet.txt
+  run `hex upgrade --continue` when done, or `hex upgrade --abort`
+```
+
+`README.md` already carries the new "Usage" line — a clean hunk applied
+silently. `greet.txt` came back with markers:
+
+```
+<<<<<<< your changes
+Hello from myapp! Have a great day.
+=======
+Hello from myapp, welcome aboard!
+>>>>>>> hex 2.0.0
+```
+
+**4. Try to continue too early** — the guard catches it:
+
+```sh
+hex upgrade --continue
+```
+
+```
+✗ 1 file(s) still have unresolved conflict markers:
+  greet.txt
+```
+
+**5. Resolve and continue.** Edit `greet.txt` to keep both intents and
+drop the markers:
+
+```
+Hello from myapp, welcome aboard! Have a great day.
+```
+
+```sh
+hex upgrade --continue
+```
+
+```
+✓ upgrade 1.0.0 → 2.0.0 complete
+```
+
+The lockfile is now at `2.0.0`, the merged tree is re-hashed, and
+`.hex/upgrade-state.yaml` + the backup are gone. Had you wanted to bail
+at step 4 instead, `hex upgrade --abort` would have restored `greet.txt`
+(and everything else) exactly as it was before step 3.
 
 ## What's never touched
 

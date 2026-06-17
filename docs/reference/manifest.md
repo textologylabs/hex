@@ -417,7 +417,9 @@ then runs the command, so a "mint a token then store it" step reads top-to-botto
 
 ---
 
-## `composes` — recipe only
+## `composes`
+
+> **Recipe only.**
 
 Maps **slot names** to child components a recipe assembles into the output. Each
 value is a child reference in one of four forms.
@@ -466,7 +468,7 @@ The resolver verifies the chosen component actually declares a `stub:` block.
 ## Component contracts — component only
 
 How components wire to their siblings inside a recipe. See
-[stubbable-components.md](../stubbable-components.md) and the composition docs
+[stubbable-components.md](../guides/stubbable-components.md) and the composition docs
 for the full model.
 
 ### `provides`
@@ -507,7 +509,9 @@ requires:
 
 ---
 
-## `stub` — component only
+## `stub`
+
+> **Component only.**
 
 Declares the component supports **stub mode** via a known engine. Absent `stub:`
 means real-only.
@@ -612,4 +616,4 @@ setup:
 - [CLI command reference](./cli.md) — `hex lint`, `hex new`, `hex setup`.
 - [docs/security.md](../security.md) — the hook sandbox + `run:` trust model.
 - [Authoring a template](../guides/authoring-a-template.md) — the guided build.
-- [Deploy adapters](../deploy.md) · [Stubbable components](../stubbable-components.md).
+- [Deploy adapters](../deploy.md) · [Stubbable components](../guides/stubbable-components.md).

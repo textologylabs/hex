@@ -10,9 +10,9 @@ tarballs to sign. Companies curate by PR; users pull by URL.
 
 This page is the user-facing tour. For the on-disk wire format of
 `marketplace.yaml` itself, see
-[`src/core/marketplace/catalogue-schema.ts`](../src/core/marketplace/catalogue-schema.ts).
+[`src/core/marketplace/catalogue-schema.ts`](../../src/core/marketplace/catalogue-schema.ts).
 For the parked, more-ambitious hosted-registry model, see
-[`docs/marketplace.md`](./marketplace.md).
+[`docs/marketplace.md`](../marketplace.md).
 
 ## Two layers
 
@@ -166,20 +166,20 @@ It is **not** the right shape when:
   is read and validated on every refresh — keep it small.
 - You want richer search (popularity ranking, download counts, deprecation
   signals, full-text on README bodies). The hosted-registry path
-  ([`docs/marketplace.md`](./marketplace.md)) is the spec for that future.
+  ([`docs/marketplace.md`](../marketplace.md)) is the spec for that future.
 
 For the immediate goals — company-internal templating, OSS template
 sharing, opinionated stack curation — the catalogue model covers it.
 
 ## Reference
 
-- [`src/core/marketplace/catalogue-schema.ts`](../src/core/marketplace/catalogue-schema.ts)
+- [`src/core/marketplace/catalogue-schema.ts`](../../src/core/marketplace/catalogue-schema.ts)
   — the zod schema for `marketplace.yaml`. The acceptance criteria for
   what counts as a valid catalogue.
-- [`src/core/marketplace/catalogue-source.ts`](../src/core/marketplace/catalogue-source.ts)
+- [`src/core/marketplace/catalogue-source.ts`](../../src/core/marketplace/catalogue-source.ts)
   — the `CatalogueSource` implementation: clone catalogue repo, resolve
   package version, fetch package source.
-- [`templates/marketplace-catalogue/`](../templates/marketplace-catalogue/)
+- [`templates/marketplace-catalogue/`](../../templates/marketplace-catalogue/)
   — the starter template (M13.5).
 - `hex marketplace validate <path>` — the schema-check CLI used by the
   starter template's CI gate.
