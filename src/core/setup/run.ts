@@ -179,9 +179,29 @@ function spawnInherit(cmd: string, args: string[], cwd: string): Promise<number>
       reject(err);
     });
     child.on('exit', (code) => {
+      restoreParentTty();
       resolve(code ?? 1);
     });
   });
+}
+
+/**
+ * Re-sync the parent's TTY state after an inherited-stdio child exits.
+ *
+ * An interactive child (e.g. `vercel link`) takes raw control of the shared
+ * terminal. On its exit the parent's raw-mode bookkeeping can be left out of
+ * sync with the actual termios state — so the next clack prompt's
+ * `setRawMode(true)` becomes a no-op against a stale flag, the prompt never
+ * truly enters raw mode, and its in-place re-render (cursor-up + erase) fails,
+ * stacking a fresh frame on every keystroke. Forcing raw mode OFF here makes
+ * the following prompt's enable a genuine cooked→raw transition, so its cursor
+ * control lands. No-op off a TTY. (bug: ritual confirm stacking after spawns.)
+ */
+function restoreParentTty(): void {
+  const { stdin } = process;
+  if (stdin.isTTY && typeof stdin.setRawMode === 'function') {
+    stdin.setRawMode(false);
+  }
 }
 
 function openUrlOnHost(url: string): Promise<void> {
@@ -189,13 +209,24 @@ function openUrlOnHost(url: string): Promise<void> {
   // and-forget — its exit code says nothing about whether the user
   // actually saw the page — so we resolve as soon as the launcher
   // process is reaped.
+  //
+  // Crucially we do NOT `detach`/`unref` the launcher: this Promise is
+  // `await`ed (the ritual pauses for the user right after), and an
+  // awaited Promise does not by itself keep Node's event loop alive.
+  // Unref'ing the child handle removed the last ref, so the loop drained
+  // and the whole `hex new` process exited 0 mid-ritual — before the
+  // browser even opened's exit handler ran — silently skipping the
+  // post-open "Continue" pause, the `run:` step, and any later tasks.
+  // The launcher (`open`/`start`/`xdg-open`) exits immediately after
+  // handing off to the browser, and the browser it spawns is already an
+  // independent process, so a plain ref'd spawn is both correct and safe.
   const p = platform();
   const cmd = p === 'darwin' ? 'open' : p === 'win32' ? 'cmd' : 'xdg-open';
   const args = p === 'win32' ? ['/c', 'start', '', url] : [url];
   return new Promise((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      child = spawn(cmd, args, { stdio: 'ignore' });
     } catch {
       // Launcher binary missing — surface a no-op rather than a hard
       // failure. The user can click the URL manually; they aren't
@@ -205,7 +236,6 @@ function openUrlOnHost(url: string): Promise<void> {
     }
     child.on('error', () => resolve());
     child.on('exit', () => resolve());
-    child.unref();
   });
 }
 
