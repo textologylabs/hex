@@ -8,7 +8,12 @@ import {
   type CatalogueProvider,
   loadCatalogueProviders,
 } from '../core/catalogue/catalogue-providers.js';
-import { type Checklist, checklistFromTasks, writeChecklist } from '../core/checklist/index.js';
+import {
+  type Checklist,
+  checklistFromTasks,
+  countByStatus,
+  writeChecklist,
+} from '../core/checklist/index.js';
 import { loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
 import { trustSource } from '../core/config/write.js';
@@ -373,6 +378,16 @@ export function registerNew(program: Command): void {
             plan.initial,
             runMode === 'review',
           );
+
+          // If the auto-pass cleared every pending task, don't drop into the
+          // interactive review loop — it would re-interrogate already-done
+          // tasks with a confusing "What now?" (Mark as undone / Skip / Quit,
+          // no clean exit). Report completion and finish. The loop still runs
+          // when manual (detail-only) or failed tasks remain pending.
+          if (countByStatus(afterPass).pending === 0) {
+            printSetupOutro({ checklist: afterPass, quit: false, steps: [] });
+            return;
+          }
 
           const setupResult = await runSetupSession(
             { rootDir: outputDir, checklist: afterPass },
