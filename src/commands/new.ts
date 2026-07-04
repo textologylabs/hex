@@ -399,7 +399,7 @@ export function registerNew(program: Command): void {
           if (err instanceof PromptCancelledError) throw err;
           if (!rendered) spinner.stop('render failed');
           clack.log.error(
-            `hex new failed ${rendered ? 'after rendering' : 'during render'}: ${
+            `hex new failed ${rendered ? 'after rendering' : 'while rendering or running its hooks'}: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );

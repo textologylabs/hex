@@ -12,7 +12,8 @@ import type { Prompter } from './types.js';
 export function createNonInteractivePrompter(): Prompter {
   const unanswered = (): never => {
     throw new PromptError(
-      'a prompt needs an answer but none was supplied — add it to your --answers file',
+      'a prompt needs an answer but none was supplied — add it to your --answers file, ' +
+        'or run interactively (prompts defined inside a hook can only be answered interactively)',
     );
   };
   return {
