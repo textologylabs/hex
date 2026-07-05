@@ -299,14 +299,20 @@ function formatStatusLine(s: SourceStatus): string {
 
   const display = s.ref ? `${s.url}@${s.ref}` : s.url;
   const tail = formatGitTail(s.status);
-  const errSuffix = s.status.driftError ? `  ${brand.dim(`(${s.status.driftError})`)}` : '';
+  // A failed drift probe means we couldn't reach the remote to compare
+  // SHAs — the cached data below is still valid. Collapse the raw
+  // (multi-line) git stderr to a short tag so it doesn't bleed across
+  // the one-line-per-source status table; `hex hive refresh` surfaces the
+  // full error when the user actually asks to fetch.
+  const errSuffix = s.status.driftError ? `  ${brand.dim('(upstream unreachable)')}` : '';
   const label = s.kind === 'catalogue' ? 'catalogue' : 'git      ';
 
   if (s.kind === 'catalogue') {
+    const n = s.status.packageCount ?? 0;
     const summary = s.status.catalogueError
       ? `  ${brand.error(`(${s.status.catalogueError})`)}`
       : s.status.namespace !== undefined
-        ? `  ${brand.dim(`${s.status.namespace} · ${s.status.packageCount ?? 0} packages`)}`
+        ? `  ${brand.dim(`${s.status.namespace} · ${n} package${n === 1 ? '' : 's'}`)}`
         : '';
     return `${brand.bold(label)}  ${display}  ${tail}${errSuffix}${summary}\n`;
   }
