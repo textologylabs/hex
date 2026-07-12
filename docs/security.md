@@ -120,11 +120,18 @@ its tasks silently. In an interactive terminal it asks how to proceed:
 - **Skip** leaves the tasks pending; run them later with `hex setup`
   (each is narrated and confirmed by the M14.11 hand-off ritual).
 
-In a **non-interactive** context (CI, piped, `--no-setup`) an untrusted
-remote source's tasks **never auto-run** — they're left pending. To
-auto-run in CI, pre-trust the source in `config.yaml`. This makes trust
-an auditable, reviewable artifact (your security team can read
-`config.yaml`) rather than a click no one can see.
+In a **non-interactive** context (CI, piped, `--answers`, `--no-setup`)
+**no setup task auto-runs** — every task is left pending, regardless of
+source trust. Hex never executes a template's `run:` commands without a
+human at an interactive terminal; finish pending tasks with `hex setup`
+at a TTY.
+
+Pre-trusting a source (`trust.sources`) controls only the **interactive**
+gate above: a trusted source skips the Trust / Review / Skip prompt and
+runs its tasks directly, while an untrusted one always asks. It does
+**not** enable headless execution. Either way trust stays an auditable,
+reviewable artifact (your security team can read `config.yaml`) rather
+than a click no one can see.
 
 ---
 
