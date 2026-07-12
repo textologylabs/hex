@@ -164,7 +164,9 @@ async function runPlainUpgrade(templateArg: string, promptOnOrphans: boolean): P
   }
 
   console.error(
-    brand.error(`${sym.err()} ${outcome.conflicts.length} file(s) have conflicts — resolve the markers, then`),
+    brand.error(
+      `${sym.err()} ${outcome.conflicts.length} file(s) have conflicts — resolve the markers, then`,
+    ),
   );
   for (const file of outcome.conflicts) console.error(`    ${file}`);
   console.error(brand.dim('  run `hex upgrade --continue` when done, or `hex upgrade --abort`'));

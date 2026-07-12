@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildDoctorReport,
   formatDoctorText,
@@ -125,26 +125,25 @@ describe('formatLockfileSection', () => {
   it('shows a clean integrity status', () => {
     // Force unicode so the glyph is deterministic regardless of the runner's
     // locale (detectUnicode is LANG-gated; CI runners may be non-UTF-8).
-    process.env.HEX_FORCE_UNICODE = '1';
+    vi.stubEnv('HEX_FORCE_UNICODE', '1');
     try {
       const out = formatLockfileSection(loaded(fakeRecipeLockfile()), cleanIntegrity);
       expect(out).toContain('✓');
       expect(out).toContain('integrity clean');
     } finally {
-      process.env.HEX_FORCE_UNICODE = undefined;
-      delete process.env.HEX_FORCE_UNICODE;
+      vi.unstubAllEnvs();
     }
   });
 
   it('degrades the status glyph to ASCII under HEX_FORCE_ASCII (glyph fallback)', () => {
-    process.env.HEX_FORCE_ASCII = '1';
+    vi.stubEnv('HEX_FORCE_ASCII', '1');
     try {
       const out = formatLockfileSection(loaded(fakeRecipeLockfile()), cleanIntegrity);
       expect(out).toContain('[OK]');
       expect(out).not.toContain('✓');
       expect(out).toContain('integrity clean');
     } finally {
-      delete process.env.HEX_FORCE_ASCII;
+      vi.unstubAllEnvs();
     }
   });
 

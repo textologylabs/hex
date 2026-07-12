@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getGlyphs, sym } from '../../src/brand/glyphs.js';
 import { detectCapabilities } from '../../src/util/tty.js';
 
@@ -24,19 +24,19 @@ describe('glyphs', () => {
 
 describe('status symbols (sym)', () => {
   it('resolves to unicode via HEX_FORCE_UNICODE', () => {
-    process.env.HEX_FORCE_UNICODE = '1';
+    vi.stubEnv('HEX_FORCE_UNICODE', '1');
     try {
       expect(sym.ok()).toBe('✓');
       expect(sym.warn()).toBe('⚠');
       expect(sym.err()).toBe('✗');
       expect(sym.check()).toBe('✓');
     } finally {
-      delete process.env.HEX_FORCE_UNICODE;
+      vi.unstubAllEnvs();
     }
   });
 
   it('degrades to ASCII via HEX_FORCE_ASCII', () => {
-    process.env.HEX_FORCE_ASCII = '1';
+    vi.stubEnv('HEX_FORCE_ASCII', '1');
     try {
       expect(sym.ok()).toBe('[OK]');
       expect(sym.warn()).toBe('[!]');
@@ -44,7 +44,7 @@ describe('status symbols (sym)', () => {
       // The bracketed-checkbox variant stays a single glyph so `[✓]` → `[x]`.
       expect(sym.check()).toBe('x');
     } finally {
-      delete process.env.HEX_FORCE_ASCII;
+      vi.unstubAllEnvs();
     }
   });
 });

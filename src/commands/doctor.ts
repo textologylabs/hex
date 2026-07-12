@@ -179,7 +179,10 @@ export function formatDoctorText(report: DoctorReport): string {
   if (report.lockfile) {
     lines.push('', formatLockfileFromReport(report.lockfile));
   } else if (report.lockfileWarning !== undefined) {
-    lines.push('', `${brand.bold('Lockfile')}  ${brand.warn(sym.warn())}  ${report.lockfileWarning}`);
+    lines.push(
+      '',
+      `${brand.bold('Lockfile')}  ${brand.warn(sym.warn())}  ${report.lockfileWarning}`,
+    );
   }
 
   if (report.setup && report.setup.counts.pending > 0) {
