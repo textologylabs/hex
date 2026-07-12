@@ -67,9 +67,16 @@ describe('hex lint (action)', () => {
       JSON.stringify({ name: 'badstub', dependencies: { 'pg-mem': '^3.0.0' } }, null, 2),
       'utf8',
     );
-    const out = await runLint(dir);
-    expect(out).toContain('stub engine: pg-mem');
-    expect(out).toContain('prod-clean: ✗');
-    expect(process.exitCode).toBe(1);
+    // Force unicode so the status glyph is deterministic regardless of the
+    // runner's locale/platform (Windows CI lacks the UTF-8 signal).
+    vi.stubEnv('HEX_FORCE_UNICODE', '1');
+    try {
+      const out = await runLint(dir);
+      expect(out).toContain('stub engine: pg-mem');
+      expect(out).toContain('prod-clean: ✗');
+      expect(process.exitCode).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

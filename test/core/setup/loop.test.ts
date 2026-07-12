@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type Checklist, checklistFromTasks, markTask } from '../../../src/core/checklist/index.js';
 import type {
   ConfirmOpts,
@@ -162,11 +162,22 @@ describe('runSetupLoop', () => {
   });
 
   it('shows ✓ in the note for already-done tasks', async () => {
-    const initial: Checklist = markTask(checklistFromTasks([{ id: 'a', title: 'A' }]), 'a', 'done');
-    const { prompter, notes } = scriptedPrompter(['Skip for now']);
+    // Force unicode so the checkbox glyph is deterministic across platforms
+    // (Windows CI lacks the UTF-8 signal, degrading `[✓]` → `[x]`).
+    vi.stubEnv('HEX_FORCE_UNICODE', '1');
+    try {
+      const initial: Checklist = markTask(
+        checklistFromTasks([{ id: 'a', title: 'A' }]),
+        'a',
+        'done',
+      );
+      const { prompter, notes } = scriptedPrompter(['Skip for now']);
 
-    await runSetupLoop(initial, prompter);
-    expect(notes[0]?.body).toContain('[✓]');
+      await runSetupLoop(initial, prompter);
+      expect(notes[0]?.body).toContain('[✓]');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('renders run: and open: lines in the task note for actionable tasks', async () => {
