@@ -71,10 +71,13 @@ file yet. See [`hex new --answers`](./reference/cli.md#hex-new).
 
 > **Setup tasks didn't run after scaffolding.**
 
-Expected for an **untrusted remote source** (or any non-interactive run): `run:`
-tasks are left pending rather than executed silently. Finish them with
-`hex setup`, or pre-trust the source (`hex hive add <url> --trust`). The full
-trust model is in [Security § 2](./security.md#2-run-setup-tasks).
+Expected for an **untrusted remote source** — and for **any** non-interactive run
+(CI, piped, `--answers`, `--no-setup`), where no task auto-runs regardless of
+trust. `run:` tasks are left pending rather than executed silently; finish them
+with `hex setup` at a terminal. Pre-trusting the source (`hex hive add <url>
+--trust`) doesn't run the pending tasks — it only skips the Trust / Review / Skip
+prompt on your **next interactive** scaffold. The full trust model is in
+[Security § 2](./security.md#2-run-setup-tasks).
 
 ## Hooks & the sandbox
 
