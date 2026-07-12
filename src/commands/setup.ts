@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import {
   CHECKLIST_REL_PATH,
   type Checklist,
@@ -197,7 +198,7 @@ export function printSetupIntro(loaded: LoadedChecklist): void {
 export function printSetupOutro(result: SetupResult): void {
   const counts = countByStatus(result.checklist);
   if (counts.pending === 0) {
-    clack.outro(brand.done('all setup tasks complete ✓'));
+    clack.outro(brand.done(`all setup tasks complete ${sym.ok()}`));
     return;
   }
   if (result.quit) {

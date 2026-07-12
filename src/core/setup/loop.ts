@@ -1,3 +1,4 @@
+import { sym } from '../../brand/glyphs.js';
 import {
   type Checklist,
   type ChecklistTask,
@@ -188,7 +189,7 @@ function renderTaskNote(
   total: number,
 ): void {
   if (!prompter.note) return;
-  const tick = task.status === 'done' ? '✓' : ' ';
+  const tick = task.status === 'done' ? sym.check() : ' ';
   const header = `[${tick}] ${task.title}`;
   const lines = [header];
   if (task.run !== undefined) lines.push('', `run:  ${task.run}`);

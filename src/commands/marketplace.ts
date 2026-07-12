@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { parse as parseYaml } from 'yaml';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import {
   MARKETPLACE_YAML_FILENAME,
   marketplaceYamlSchema,
@@ -105,13 +106,13 @@ export async function validateMarketplaceFile(path: string): Promise<ValidationR
 function writeValidationReport(path: string, result: ValidationResult): void {
   if (result.ok) {
     process.stdout.write(
-      `${brand.done('✓')} ${brand.bold(path)}: ${brand.dim(
+      `${brand.done(sym.ok())} ${brand.bold(path)}: ${brand.dim(
         `${result.namespace} · ${result.packageCount} package${result.packageCount === 1 ? '' : 's'}`,
       )}\n`,
     );
     return;
   }
-  process.stderr.write(`${brand.error('✗')} ${brand.bold(path)}\n`);
+  process.stderr.write(`${brand.error(sym.err())} ${brand.bold(path)}\n`);
   if (result.reason === 'read') {
     process.stderr.write(`  ${brand.dim(`cannot read: ${result.message}`)}\n`);
     return;

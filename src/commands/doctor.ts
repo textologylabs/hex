@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import { splash } from '../brand/splash.js';
 import {
   type LoadedChecklist,
@@ -178,7 +179,10 @@ export function formatDoctorText(report: DoctorReport): string {
   if (report.lockfile) {
     lines.push('', formatLockfileFromReport(report.lockfile));
   } else if (report.lockfileWarning !== undefined) {
-    lines.push('', `${brand.bold('Lockfile')}  ${brand.warn('⚠')}  ${report.lockfileWarning}`);
+    lines.push(
+      '',
+      `${brand.bold('Lockfile')}  ${brand.warn(sym.warn())}  ${report.lockfileWarning}`,
+    );
   }
 
   if (report.setup && report.setup.counts.pending > 0) {
@@ -244,11 +248,11 @@ function appendChildRowsFromReport(
 /** The single integrity-status line: a clean ✓ or an "N files diverged" ⚠. */
 function integrityLine(integrity: LockfileIntegrity | null): string {
   if (!integrity) return `  ${brand.dim('integrity: not checked')}`;
-  if (integrity.ok) return `  ${brand.done('✓')}  integrity clean`;
+  if (integrity.ok) return `  ${brand.done(sym.ok())}  integrity clean`;
 
   const total = integrity.modified.length + integrity.missing.length + integrity.added.length;
   const breakdown = `${integrity.modified.length} modified, ${integrity.missing.length} missing, ${integrity.added.length} added`;
-  return `  ${brand.warn('⚠')}  ${total} file${total === 1 ? '' : 's'} diverged from the lockfile  ${brand.dim(`(${breakdown})`)}`;
+  return `  ${brand.warn(sym.warn())}  ${total} file${total === 1 ? '' : 's'} diverged from the lockfile  ${brand.dim(`(${breakdown})`)}`;
 }
 
 /**

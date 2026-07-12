@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path';
 import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import { splash } from '../brand/splash.js';
 import {
   type CatalogueProvider,
@@ -532,11 +533,11 @@ async function maybeAutoExecutePass(
     // here as ✓ / ✗ summaries.
     onTaskComplete: (report) => {
       if (report.markedDone) {
-        clack.log.success(`✓ ${report.task.title}`);
+        clack.log.success(`${sym.ok()} ${report.task.title}`);
         return;
       }
       const reason = describeFailure(report.outcome);
-      clack.log.error(`✗ ${report.task.title}${reason ? ` — ${reason}` : ''}`);
+      clack.log.error(`${sym.err()} ${report.task.title}${reason ? ` — ${reason}` : ''}`);
     },
   });
   return result.checklist;
