@@ -1,11 +1,12 @@
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import { loadFromPath } from '../core/sources/file-source.js';
 import { type LintCheck, lintStubComponent } from '../core/stub/lint.js';
 
 const MARK: Record<LintCheck['status'], string> = {
-  pass: brand.done('✓'),
-  fail: brand.error('✗'),
+  pass: brand.done(sym.ok()),
+  fail: brand.error(sym.err()),
   skip: brand.dim('–'),
 };
 
@@ -50,9 +51,9 @@ export function registerLint(program: Command): void {
       }
 
       if (report.ok) {
-        console.log(brand.done('\nstubs prod-clean: ✓'));
+        console.log(brand.done(`\nstubs prod-clean: ${sym.ok()}`));
       } else {
-        console.log(brand.error('\nstubs prod-clean: ✗ — fix the failing checks above'));
+        console.log(brand.error(`\nstubs prod-clean: ${sym.err()} — fix the failing checks above`));
         process.exitCode = 1;
       }
     });

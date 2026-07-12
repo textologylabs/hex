@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import { loadCatalogueProviders } from '../core/catalogue/catalogue-providers.js';
 import { createMarketplaceCatalogue } from '../core/catalogue/marketplace.js';
 import { getDefaultConfigPath, loadConfig } from '../core/config/load.js';
@@ -52,7 +53,7 @@ function buildHiveAddCommand(parent: Command): void {
       const { added, configPath } = await addSource(entry);
       if (added) {
         process.stdout.write(
-          `${brand.done('✓')} added ${brand.bold(`${entry.kind}`)} ${url}${
+          `${brand.done(sym.ok())} added ${brand.bold(`${entry.kind}`)} ${url}${
             entry.kind !== 'path' && opts.ref ? brand.dim(`@${opts.ref}`) : ''
           }\n${brand.dim(`  → ${configPath}`)}\n`,
         );
@@ -66,7 +67,7 @@ function buildHiveAddCommand(parent: Command): void {
         const { added: trusted } = await trustSource(url);
         process.stdout.write(
           trusted
-            ? `${brand.done('✓')} trusted ${url} ${brand.dim('(its setup tasks may auto-run)')}\n`
+            ? `${brand.done(sym.ok())} trusted ${url} ${brand.dim('(its setup tasks may auto-run)')}\n`
             : `${brand.dim(`${url} was already trusted.`)}\n`,
         );
       }
@@ -84,7 +85,7 @@ function buildHiveRemoveCommand(parent: Command): void {
       const { removed, configPath } = await removeSource(url);
       if (removed > 0) {
         process.stdout.write(
-          `${brand.done('✓')} removed ${removed} source${removed === 1 ? '' : 's'} matching ${url}\n${brand.dim(`  → ${configPath}`)}\n`,
+          `${brand.done(sym.ok())} removed ${removed} source${removed === 1 ? '' : 's'} matching ${url}\n${brand.dim(`  → ${configPath}`)}\n`,
         );
       } else {
         process.stdout.write(`${brand.dim(`No configured source matched ${url}.`)}\n`);

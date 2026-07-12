@@ -1,20 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { getGlyphs } from '../../src/brand/glyphs.js';
+import { getGlyphs, sym } from '../../src/brand/glyphs.js';
 import { detectCapabilities } from '../../src/util/tty.js';
 
 describe('glyphs', () => {
-  it('returns unicode hexagons when unicode is supported', () => {
+  it('returns unicode glyphs when unicode is supported', () => {
     const g = getGlyphs(true);
     expect(g.filled).toBe('⬢');
     expect(g.empty).toBe('⬡');
-    expect(g.error).toBe('⬣');
+    expect(g.error).toBe('✗');
+    expect(g.ok).toBe('✓');
+    expect(g.warn).toBe('⚠');
   });
 
   it('falls back to ASCII when unicode is not supported', () => {
     const g = getGlyphs(false);
     expect(g.filled).toBe('[#]');
     expect(g.empty).toBe('[ ]');
-    expect(g.error).toBe('[!]');
+    expect(g.error).toBe('[x]');
+    expect(g.ok).toBe('[OK]');
+    expect(g.warn).toBe('[!]');
+  });
+});
+
+describe('status symbols (sym)', () => {
+  it('resolves to unicode via HEX_FORCE_UNICODE', () => {
+    process.env.HEX_FORCE_UNICODE = '1';
+    try {
+      expect(sym.ok()).toBe('✓');
+      expect(sym.warn()).toBe('⚠');
+      expect(sym.err()).toBe('✗');
+      expect(sym.check()).toBe('✓');
+    } finally {
+      delete process.env.HEX_FORCE_UNICODE;
+    }
+  });
+
+  it('degrades to ASCII via HEX_FORCE_ASCII', () => {
+    process.env.HEX_FORCE_ASCII = '1';
+    try {
+      expect(sym.ok()).toBe('[OK]');
+      expect(sym.warn()).toBe('[!]');
+      expect(sym.err()).toBe('[x]');
+      // The bracketed-checkbox variant stays a single glyph so `[✓]` → `[x]`.
+      expect(sym.check()).toBe('x');
+    } finally {
+      delete process.env.HEX_FORCE_ASCII;
+    }
   });
 });
 

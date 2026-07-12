@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { isCancel, select } from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
+import { sym } from '../brand/glyphs.js';
 import { type Lockfile, readLockfileUpward } from '../core/lockfile/index.js';
 import { loadFromPath } from '../core/sources/file-source.js';
 import type { OrphanDecision } from '../core/upgrade/merge.js';
@@ -47,12 +48,14 @@ export function registerUpgrade(program: Command): void {
           }
           if (opts.abort) {
             const { from, to } = await abortUpgrade(process.cwd());
-            console.log(brand.done(`✓ upgrade ${from} → ${to} aborted — working tree rolled back`));
+            console.log(
+              brand.done(`${sym.ok()} upgrade ${from} → ${to} aborted — working tree rolled back`),
+            );
             return;
           }
           if (opts.continue) {
             const { from, to } = await continueUpgrade(process.cwd());
-            console.log(brand.done(`✓ upgrade ${from} → ${to} complete`));
+            console.log(brand.done(`${sym.ok()} upgrade ${from} → ${to} complete`));
             return;
           }
           if (!templateArg) {
@@ -63,7 +66,7 @@ export function registerUpgrade(program: Command): void {
           await runPlainUpgrade(templateArg, opts.promptOnOrphans);
         } catch (err) {
           if (err instanceof UpgradeError) {
-            console.error(brand.error(`✗ ${err.message}`));
+            console.error(brand.error(`${sym.err()} ${err.message}`));
             process.exitCode = 1;
             return;
           }
@@ -140,7 +143,7 @@ async function runPlainUpgrade(templateArg: string, promptOnOrphans: boolean): P
   if (outcome.orphans.length > 0) {
     console.log(
       brand.warn(
-        `⚠ ${outcome.orphans.length} orphaned file(s) have your edits — kept in place, review and clean up if desired:`,
+        `${sym.warn()} ${outcome.orphans.length} orphaned file(s) have your edits — kept in place, review and clean up if desired:`,
       ),
     );
     for (const file of outcome.orphans) console.log(`    ${file}`);
@@ -149,19 +152,19 @@ async function runPlainUpgrade(templateArg: string, promptOnOrphans: boolean): P
   if (outcome.userTreeChanges.length > 0) {
     console.log(
       brand.warn(
-        `⚠ a user-tree migration edited your code directly — review these ${outcome.userTreeChanges.length} file(s):`,
+        `${sym.warn()} a user-tree migration edited your code directly — review these ${outcome.userTreeChanges.length} file(s):`,
       ),
     );
     for (const file of outcome.userTreeChanges) console.log(`    ${file}`);
   }
 
   if (outcome.status === 'clean') {
-    console.log(brand.done('✓ upgrade complete — lockfile updated'));
+    console.log(brand.done(`${sym.ok()} upgrade complete — lockfile updated`));
     return;
   }
 
   console.error(
-    brand.error(`✗ ${outcome.conflicts.length} file(s) have conflicts — resolve the markers, then`),
+    brand.error(`${sym.err()} ${outcome.conflicts.length} file(s) have conflicts — resolve the markers, then`),
   );
   for (const file of outcome.conflicts) console.error(`    ${file}`);
   console.error(brand.dim('  run `hex upgrade --continue` when done, or `hex upgrade --abort`'));
