@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
+import { sourceSpecSchema } from '../lockfile/schema.js';
 
 /**
  * Upgrade state file (M11.4) — `.hex/upgrade-state.yaml`.
@@ -52,6 +53,13 @@ export const upgradeStateSchema = z.object({
    * conflicts are resolved. Empty when there are none.
    */
   orphans: z.array(z.string()).default([]),
+  /**
+   * Where the target version came from, carried across the pause so
+   * `--continue` can advance the lockfile's `root.source` to it. Absent
+   * on states written before this field existed — the old source is then
+   * left in place, exactly as it was.
+   */
+  new_source: sourceSpecSchema.optional(),
 });
 
 /** A paused upgrade's recorded state, as read back (defaults applied). */

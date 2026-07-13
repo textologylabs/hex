@@ -47,6 +47,7 @@ import type { RitualOutcome } from '../core/setup/ritual.js';
 import { SetupExecutorError, validateSetupTasksAllowlist } from '../core/setup/run.js';
 import { type TrustPolicy, classifySource, resolveTrustPolicy } from '../core/setup/trust.js';
 import { type ComponentBundle, loadFromPath } from '../core/sources/file-source.js';
+import { captureBaseline } from '../core/upgrade/baseline.js';
 import {
   defaultRitualEffects,
   makeInteractiveRunner,
@@ -161,6 +162,12 @@ export async function executeNewRender(
     outputDir,
     await buildLockfile({ bundle, resolved: ctx.resolved, answers: ctx.answers, outputDir }),
   );
+
+  // Capture `.hex/pristine/` — the tree exactly as the template rendered
+  // it, before the user touches anything. `hex upgrade` merges against
+  // this, so it never has to guess what the old template used to say.
+  // Taken here, alongside the lockfile: post-hooks, pre-setup-ritual.
+  await captureBaseline(outputDir);
 
   return summary;
 }
