@@ -10,14 +10,21 @@ import { type ComponentBundle, loadFromPath } from '../sources/file-source.js';
 import { resolveGitSource } from '../sources/git-source.js';
 
 /**
- * Pristine reconstruction (M11.1) — the foundation of the upgrade
- * engine (`idea.md` §1, "pristine-tree model").
+ * Pristine reconstruction (M11.1) — renders a lockfile back into a tree
+ * (`idea.md` §1, "pristine-tree model").
  *
- * Given a lockfile, `reconstructPristine` rebuilds `pristine_old`: the
- * rendered tree exactly as it looked when the user first ran `hex new`.
- * It re-fetches every locked artifact from its recorded source, replays
- * the stored answers through the render engine, and writes the result
- * into a temp directory.
+ * Given a lockfile, `reconstructPristine` re-fetches every locked
+ * artifact from its recorded source, replays the stored answers through
+ * the render engine, and writes the result into a temp directory.
+ *
+ * This is faithful *only* while each recorded source still holds the
+ * version the lockfile names — true for `git:`/`catalogue:` specs, which
+ * pin a ref, and for a `file:` path nobody has updated. It is therefore
+ * how `pristine_new` is rendered (the caller supplies the target
+ * template), and the **fallback** for `pristine_old` in apps generated
+ * before Hex stored a baseline. The merge base otherwise comes from
+ * `.hex/pristine/` — see `baseline.ts`, which explains why re-rendering
+ * the base was not safe.
  *
  * The reconstruction deliberately does **not** re-resolve the recipe's
  * `composes:` block — that would pick up whatever versions discovery

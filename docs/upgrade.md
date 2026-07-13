@@ -40,9 +40,9 @@ does.
 
 1. **Snapshot** — the working tree is copied into `.hex/upgrade-backup/`
    before anything else, so `--abort` can roll back exactly.
-2. **Pristine reconstruction** — Hex re-renders the app at the **locked
-   version** using the answers stored in the lockfile, producing
-   `pristine_old`.
+2. **Baseline** — `pristine_old` is read back from `.hex/pristine/`: the
+   tree exactly as the template rendered it at the **locked version**,
+   stored by `hex new` and refreshed on every successful upgrade.
 3. **Chain walk** — for a multi-version upgrade (`1.0.0 → 1.1.0 → 2.0.0`)
    Hex walks every published version, *composing* each hop's migration.
    It then renders the target version to produce `pristine_new`.
@@ -51,11 +51,38 @@ does.
    apply silently; conflicting ones land with markers in place.
 5. **Finalise**
    - **Clean** — the lockfile is rewritten at the new version,
-     re-hashing the merged tree. `.hex/upgrade-backup/` is removed.
-     Exit 0.
+     re-hashing the merged tree and recording the template it now tracks.
+     `.hex/pristine/` is refreshed to the new version and
+     `.hex/upgrade-backup/` is removed. Exit 0.
    - **Conflict** — marker-laden files stay in place,
      `.hex/upgrade-state.yaml` is written with the list of conflicted
      files, and the snapshot is retained. Exit non-zero.
+
+## The pristine baseline — `.hex/pristine/`
+
+The merge is only as good as its base. `.hex/pristine/` **is** that base:
+a verbatim copy of what Hex wrote, so the engine never has to guess what
+the old template used to say.
+
+**Commit it, alongside `.hex/lockfile.yaml`.** It is how a teammate — or
+CI, or a fresh clone — can run `hex upgrade` at all. It carries no
+secrets: it is the rendered template output, the same content already in
+your repo.
+
+Storing it is what lets you keep **one** template checkout and just
+`git pull` it. Hex used to rebuild the base by re-rendering the template
+at the path the lockfile recorded, which quietly assumed that path still
+held the locked version's content. Update the template in place and it
+didn't: the base came out identical to the target, every change the
+template shipped looked like it was already applied, and the upgrade
+"succeeded" having changed nothing.
+
+Apps generated before Hex stored a baseline still upgrade — Hex falls
+back to re-rendering the recorded template, and writes a baseline as it
+goes, so it is a one-off. If that template has already moved past the
+locked version, Hex **refuses** rather than merge against a tree that
+only impersonates the old version; the error tells you how to point it at
+the right one.
 
 ## Resolving conflicts
 

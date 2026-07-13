@@ -3,11 +3,13 @@ import { cp, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   type Lockfile,
+  type SourceSpec,
   checkLockfileIntegrity,
   hashTree,
   readLockfileUpward,
   writeLockfile,
 } from '../lockfile/index.js';
+import { commitBaseline, discardBaseline, stageBaseline } from './baseline.js';
 import { type MigrationStep, walkUpgradeChain } from './chain.js';
 import { type MergeResult, type OrphanDecision, mergeTrees } from './merge.js';
 import {
@@ -21,6 +23,7 @@ import {
   readUpgradeState,
   writeUpgradeState,
 } from './state.js';
+import { PROTECTED, collectTreeFiles } from './tree.js';
 
 /**
  * The upgrade orchestrator (M11.5) — ties M11.1–M11.4 into the
@@ -71,6 +74,12 @@ export type RunUpgradeInput = {
    * supplies one only under `--prompt-on-orphans`.
    */
   onOrphan?: (rel: string) => Promise<OrphanDecision>;
+  /**
+   * Where the *target* version was fetched from — recorded in the
+   * rewritten lockfile so `root.source` names the template the app now
+   * tracks. Omitted → the existing source is carried through unchanged.
+   */
+  newSource?: SourceSpec;
 };
 
 /** The result of an upgrade attempt. */
@@ -101,8 +110,6 @@ type CollectedMigration = {
 };
 
 const BACKUP_DIRNAME = 'upgrade-backup';
-/** Directories left out of the merge, the snapshot, and the rollback sweep. */
-const PROTECTED = new Set(['.hex', '.git', 'node_modules']);
 
 /**
  * Run an upgrade end to end. Reconstructs `pristine_old`, walks the
@@ -170,8 +177,15 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
     // Escape-hatch migrations run last, against the freshly merged tree.
     const userTreeChanges = await applyUserTreeMigrations(root, userTreeMigrations, userModified);
 
+    // Stash the target's pristine tree while it still exists — it becomes
+    // the baseline for the *next* upgrade. Staged rather than committed:
+    // a conflicted run may not finish for days, and `--abort` must leave
+    // the app's recorded baseline on the version it is still sitting on.
+    await stageBaseline(root, pristineNew);
+
     if (merge.clean) {
-      await finalizeLockfile(root, loaded.lockfile, input.target, merge.orphaned);
+      await finalizeLockfile(root, loaded.lockfile, input.target, merge.orphaned, input.newSource);
+      await commitBaseline(root);
       await dropSnapshot(root);
       return {
         status: 'clean',
@@ -190,6 +204,7 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
       conflicts: merge.conflicted,
       user_tree_changes: userTreeChanges,
       orphans: merge.orphaned,
+      ...(input.newSource ? { new_source: input.newSource } : {}),
     });
     return {
       status: 'conflict',
@@ -235,7 +250,8 @@ export async function continueUpgrade(appRoot: string): Promise<ResumeOutcome> {
     );
   }
 
-  await finalizeLockfile(root, loaded.lockfile, state.to, state.orphans);
+  await finalizeLockfile(root, loaded.lockfile, state.to, state.orphans, state.new_source);
+  await commitBaseline(root);
   await clearUpgradeState(root);
   await dropSnapshot(root);
   return { from: state.from, to: state.to };
@@ -254,6 +270,7 @@ export async function abortUpgrade(appRoot: string): Promise<ResumeOutcome> {
   if (!state) throw new UpgradeError('no upgrade in progress — nothing to abort');
 
   await restoreSnapshot(root);
+  await discardBaseline(root);
   await clearUpgradeState(root);
   await dropSnapshot(root);
   return { from: state.from, to: state.to };
@@ -391,16 +408,27 @@ function diffSnapshots(before: Map<string, string>, after: Map<string, string>):
  * Rewrite the lockfile at `toVersion`, re-hashing the merged tree and
  * recording any orphaned files (M11.7) so `hex doctor` and a later
  * upgrade can tell template-owned files from kept user orphans.
+ *
+ * `newSource` advances `root.source` to the template the app now tracks.
+ * Carrying the old source through left the lockfile claiming the new
+ * version while pointing at the directory the *old* one came from —
+ * which `hex doctor` reported verbatim, and which a pre-baseline app
+ * would then try to rebuild its merge base from.
  */
 async function finalizeLockfile(
   root: string,
   lockfile: Lockfile,
   toVersion: string,
   orphans: string[],
+  newSource?: SourceSpec,
 ): Promise<void> {
   const updated: Lockfile = {
     ...lockfile,
-    root: { ...lockfile.root, version: toVersion },
+    root: {
+      ...lockfile.root,
+      version: toVersion,
+      ...(newSource ? { source: newSource } : {}),
+    },
     files: await hashTree(root),
     orphans: orphans.length > 0 ? [...orphans].sort() : undefined,
   };
@@ -439,25 +467,6 @@ async function restoreSnapshot(root: string): Promise<void> {
     await mkdir(dirname(dest), { recursive: true });
     await cp(join(backup, rel), dest);
   }
-}
-
-/** Relative file paths under `dir`, skipping the protected top-level dirs. */
-async function collectTreeFiles(dir: string): Promise<string[]> {
-  const out: string[] = [];
-  async function walk(current: string, prefix: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (prefix === '' && PROTECTED.has(entry.name)) continue;
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        await walk(join(current, entry.name), rel);
-      } else if (entry.isFile()) {
-        out.push(rel);
-      }
-    }
-  }
-  await walk(dir, '');
-  return out;
 }
 
 async function dropSnapshot(root: string): Promise<void> {
