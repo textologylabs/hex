@@ -82,23 +82,32 @@ describe('createVercelAdapter', () => {
     });
   });
 
-  it('declares VERCEL_TOKEN as a required env var', () => {
-    expect(createVercelAdapter().requiredEnv).toEqual(['VERCEL_TOKEN']);
+  it('declares VERCEL_TOKEN as a required env var for CI, but none locally', () => {
+    const adapter = createVercelAdapter();
+    // Headless/CI contract — the github-actions provider wires this in as a secret.
+    expect(adapter.requiredEnv).toEqual(['VERCEL_TOKEN']);
+    // Local deploy needs nothing: it rides the `vercel link` login session.
+    expect(adapter.localRequiredEnv).toEqual([]);
   });
 
-  it('throws when VERCEL_TOKEN is missing', async () => {
+  it('deploys via the login session (omitting --token) when VERCEL_TOKEN is absent', async () => {
     const capture: Call[] = [];
     const adapter = createVercelAdapter({
-      runner: scriptedRunner({ stdout: '', stderr: '' }, capture),
+      runner: scriptedRunner(
+        { stdout: 'Preview: https://my-app-abc.vercel.app\n', stderr: '' },
+        capture,
+      ),
     });
-    await expect(
-      adapter.deploy({
-        appRoot: '/tmp/app',
-        config: { adapter: 'vercel' },
-        env: {},
-      }),
-    ).rejects.toThrow(/VERCEL_TOKEN is not set/);
-    expect(capture).toEqual([]);
+    const result = await adapter.deploy({
+      appRoot: '/tmp/app',
+      config: { adapter: 'vercel' },
+      env: {},
+    });
+    // No token → no `--token` flag; the vercel CLI uses the local session.
+    expect(capture).toHaveLength(1);
+    expect(capture[0]?.args).toEqual(['--yes', 'vercel', 'deploy', '--yes']);
+    expect(capture[0]?.args).not.toContain('--token');
+    expect(result.url).toBe('https://my-app-abc.vercel.app');
   });
 
   it('invokes npx --yes vercel deploy --yes --token <T> from appRoot and returns the URL (M14.10)', async () => {

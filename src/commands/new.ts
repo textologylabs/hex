@@ -18,6 +18,7 @@ import {
 import { loadConfig } from '../core/config/load.js';
 import type { HexConfig } from '../core/config/types.js';
 import { trustSource } from '../core/config/write.js';
+import { emitCicdWorkflows } from '../core/deploy/index.js';
 import { type TemplateEntry, discoverTemplates } from '../core/discovery/index.js';
 import { buildLockfile, writeLockfile } from '../core/lockfile/index.js';
 import type { SetupTask } from '../core/manifest/types.js';
@@ -168,6 +169,18 @@ export async function executeNewRender(
   // this, so it never has to guess what the old template used to say.
   // Taken here, alongside the lockfile: post-hooks, pre-setup-ritual.
   await captureBaseline(outputDir);
+
+  // M12.4 wiring: emit the CI/CD workflow the manifest's `cicd:` stanza
+  // declares (e.g. `.github/workflows/deploy.yml`). Written after the
+  // baseline so it is a generated artifact the developer owns — staged by
+  // the setup flow's `git add .`, not tracked in the lockfile or reconciled
+  // on upgrade. Skipped (returns []) when there is no `cicd:` stanza.
+  const emitted = await emitCicdWorkflows({
+    cicd: bundle.manifest.cicd,
+    deploy: bundle.manifest.deploy,
+    outputDir,
+  });
+  summary.written += emitted.length;
 
   return summary;
 }

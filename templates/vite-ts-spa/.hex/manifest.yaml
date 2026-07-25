@@ -46,46 +46,72 @@ hooks:
 
 setup:
   message: |
-    Your Vite SPA is scaffolded. A few things to wire up before it can deploy:
+    Your Vite SPA is scaffolded. Let's get it live.
+
+    These steps take you from install to a live URL, then wire up auto-deploy
+    on every push. Each step tells you what it does before it runs. Before you
+    start, make sure you have:
+      - the GitHub CLI authenticated  (run `gh auth status`; if not, `gh auth login`)
+      - a Vercel account              (a browser login opens during setup)
   tasks:
     - id: install-deps
       title: Install dependencies
       run: npm install
+      detail: |
+        Installs the project's dependencies with npm.
     - id: git-init
       title: Initialise a git repository
       run: git init -b main
+      detail: |
+        Creates a local git repository on the `main` branch.
     - id: git-stage
       title: Stage every scaffolded file
       run: git add .
+      detail: |
+        Stages everything Hex generated — including the CI workflow at
+        .github/workflows/deploy.yml — ready for the first commit.
     - id: git-commit-initial
       title: Make the initial commit
       run: git commit -m "initial commit"
-    - id: configure-git-remote
-      title: Connect the repo to GitHub
       detail: |
-        Create a new repo on GitHub, then connect + push from your project root:
-          git remote add origin <your-github-url>
-          git push -u origin main
+        Records the scaffolded project as your first commit.
+    - id: create-github-repo
+      title: Create the GitHub repository
+      run: gh repo create --source=. --private --remote=origin
+      detail: |
+        Creates a PRIVATE GitHub repo named after this folder and wires it up
+        as `origin` (no push yet — that comes last). The repo has to exist
+        before the deploy secret can be stored on it and before CI can run.
+        Requires the GitHub CLI to be authenticated (`gh auth status`).
     - id: vercel-link
       title: Link the project to Vercel
       run: npx --yes vercel link
       detail: |
-        Creates a .vercel/ folder linking this project to a Vercel project
-        (already in .gitignore). The vercel CLI is fetched on-demand via npx
-        — no global install required. Accept its interactive prompts.
+        A browser opens — log in to Vercel and pick or create the project this
+        app deploys to. This login session is what your first deploy uses, so
+        no token is needed yet. The vercel CLI is fetched on demand via npx
+        (no global install). Accept its prompts.
+    - id: first-deploy
+      title: First deploy — your live URL
+      run: hex deploy
+      detail: |
+        Deploys straight from the Vercel login you just did — no token needed —
+        and prints your live URL. This is your app on the internet, right now.
     - id: configure-vercel-token
-      title: Configure the Vercel deploy token
+      title: Enable auto-deploy on every push
       open: https://vercel.com/account/tokens
       run: gh secret set VERCEL_TOKEN
       detail: |
-        On the tokens page, mint a new token (any name, no expiry needed,
-        default scope), then copy it to your clipboard. Return here and
-        paste it at the `gh secret set` prompt — Hex stores it as the
-        repo's VERCEL_TOKEN secret, which the deploy workflow at
-        .github/workflows/deploy.yml uses on every push to main.
-    - id: first-deploy
-      title: First deploy
-      run: hex deploy
+        To let GitHub deploy for you on every push, CI needs its own token (it
+        can't reuse your browser login). On the tokens page that just opened,
+        mint a token (any name, no expiry needed, default scope), copy it,
+        return here, and paste it at the `gh secret set` prompt. Hex stores it
+        as the repo's VERCEL_TOKEN secret — the workflow at
+        .github/workflows/deploy.yml reads it on every push to main.
+    - id: push-to-github
+      title: Push to GitHub (triggers the first CI deploy)
+      run: git push -u origin main
       detail: |
-        On success, Hex prints the deploy URL. Subsequent pushes to `main`
-        trigger the GitHub Actions workflow to deploy automatically.
+        Pushes `main` to GitHub. Because the VERCEL_TOKEN secret is already in
+        place, the deploy workflow runs and ships this push automatically — and
+        every push after it.

@@ -31,8 +31,21 @@ export type DeployResult = {
 export type DeployAdapter = {
   /** Canonical name as written in the manifest stanza (kebab-case). */
   name: string;
-  /** Env vars required for a real deploy (e.g. `['VERCEL_TOKEN']`). */
+  /**
+   * Env vars a *headless* deploy requires (e.g. `['VERCEL_TOKEN']`). This is
+   * the CI contract: the `CicdProvider` wires each of these in as a workflow
+   * secret. It is NOT necessarily what a local `hex deploy` needs — see
+   * `localRequiredEnv`.
+   */
   requiredEnv: readonly string[];
+  /**
+   * Env vars a *local* `hex deploy` must have present, or the command fails
+   * fast before invoking the adapter. Defaults to `requiredEnv` when omitted.
+   * An adapter whose CLI can fall back to an interactive login session on a
+   * developer's machine (e.g. Vercel after `vercel link`) sets this to `[]`
+   * so the local deploy isn't blocked on a token that only CI needs.
+   */
+  localRequiredEnv?: readonly string[];
   /**
    * Validate + normalize the adapter-specific portion of the manifest stanza.
    * Throws on invalid input. The returned object is what `DeployContext.config`

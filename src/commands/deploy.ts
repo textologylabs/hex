@@ -99,7 +99,13 @@ export async function runDeployCommand(
     return;
   }
 
-  const missing = adapter.requiredEnv.filter((name) => !effects.env[name]);
+  // Local `hex deploy` only hard-fails on the env an adapter genuinely can't
+  // run without locally (`localRequiredEnv`), which defaults to the headless
+  // `requiredEnv`. An adapter with a local session fallback (e.g. Vercel after
+  // `vercel link`) declares `localRequiredEnv: []`, so the developer's first
+  // deploy rides their login instead of a CI-only token.
+  const localRequired = adapter.localRequiredEnv ?? adapter.requiredEnv;
+  const missing = localRequired.filter((name) => !effects.env[name]);
   if (missing.length > 0) {
     effects.stderr.write(`${brand.error(`missing required env vars: ${missing.join(', ')}`)}\n`);
     effects.setExitCode(1);

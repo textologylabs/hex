@@ -161,15 +161,46 @@ describe('vite-ts-spa template — end-to-end', () => {
     const bundle = await loadFromPath(TEMPLATE_PATH);
     const ids = bundle.manifest.setup?.tasks?.map((t) => t.id).sort();
     expect(ids).toEqual([
-      'configure-git-remote',
       'configure-vercel-token',
+      'create-github-repo',
       'first-deploy',
       'git-commit-initial',
       'git-init',
       'git-stage',
       'install-deps',
+      'push-to-github',
       'vercel-link',
     ]);
+  });
+
+  it('every setup task is actionable (no dead-end detail-only steps) so the flow can finish green', async () => {
+    const bundle = await loadFromPath(TEMPLATE_PATH);
+    const tasks = bundle.manifest.setup?.tasks ?? [];
+    // A detail-only task stays pending after the auto-execute pass and forces
+    // the What-now? loop — it can never reach the clean "all complete" outro.
+    // Every task here must carry a run: or open: so the happy path is green.
+    for (const t of tasks) {
+      expect(Boolean(t.run || t.open), `task ${t.id} must be actionable`).toBe(true);
+    }
+  });
+
+  it('orders the tasks so nothing fails on a missing precondition', async () => {
+    const bundle = await loadFromPath(TEMPLATE_PATH);
+    const order = (bundle.manifest.setup?.tasks ?? []).map((t) => t.id);
+    const at = (id: string) => order.indexOf(id);
+    // The repo must exist before a secret can be stored on it...
+    expect(at('create-github-repo')).toBeLessThan(at('configure-vercel-token'));
+    // ...and the secret must be in place before the first push triggers CI.
+    expect(at('configure-vercel-token')).toBeLessThan(at('push-to-github'));
+    // The instant local deploy comes before any token wrangling (rides the login).
+    expect(at('vercel-link')).toBeLessThan(at('first-deploy'));
+    expect(at('first-deploy')).toBeLessThan(at('configure-vercel-token'));
+  });
+
+  it('creates the GitHub repo as an actionable step (not a manual note)', async () => {
+    const bundle = await loadFromPath(TEMPLATE_PATH);
+    const repo = bundle.manifest.setup?.tasks?.find((t) => t.id === 'create-github-repo');
+    expect(repo?.run).toBe('gh repo create --source=. --private --remote=origin');
   });
 
   it('configure-vercel-token combines open: + run: + detail: in one task (M14.11)', async () => {

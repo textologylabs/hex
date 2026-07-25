@@ -145,6 +145,28 @@ describe('runDeployCommand', () => {
     expect(cap.deployCalls).toEqual([]);
   });
 
+  it('proceeds when localRequiredEnv is empty even though requiredEnv is unmet', async () => {
+    // An adapter that can fall back to a local login session (like Vercel after
+    // `vercel link`) declares localRequiredEnv: [] so a token only CI needs
+    // never blocks the developer's first deploy.
+    await writeLockfileYaml(work, { ...baseLockfile, deploy: { adapter: 'fake' } });
+    const adapter: DeployAdapter = {
+      name: 'fake',
+      requiredEnv: ['FAKE_TOKEN'],
+      localRequiredEnv: [],
+      validateConfig: (s) => s,
+      deploy: async (): Promise<DeployResult> => ({ url: 'https://session.example' }),
+    };
+    const cap = captureEffects(adapter, {});
+
+    await runDeployCommand(work, cap.effects);
+
+    expect(cap.exitCodes).toEqual([]);
+    expect(cap.stderr).toEqual([]);
+    expect(cap.deployCalls).toHaveLength(1);
+    expect(cap.stdout.join('')).toMatch(/https:\/\/session\.example/);
+  });
+
   it('invokes the adapter and prints the deploy URL on success', async () => {
     await writeLockfileYaml(work, {
       ...baseLockfile,
