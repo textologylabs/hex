@@ -43,11 +43,12 @@ app's `.hex/lockfile.yaml`** so the generated app is self-describing —
 
 ## `hex deploy` from your laptop
 
-The first deploy happens before the repo even has a remote:
+Your first deploy needs **no token** — it rides the login session
+`vercel link` already established:
 
 ```sh
-export VERCEL_TOKEN=…       # see "Tokens" below
-hex deploy
+npx --yes vercel link       # interactive browser login (done once)
+hex deploy                  # deploys from that session — prints your URL
 ```
 
 What that does:
@@ -56,16 +57,21 @@ What that does:
    `.hex/lockfile.yaml`.
 2. Reads the `deploy:` stanza and resolves the adapter
    (`vercel`, `none`, …) via the in-process registry.
-3. Checks the adapter's required env vars (`VERCEL_TOKEN` for Vercel) —
-   exits non-zero with a clear message if any are missing.
+3. Checks the adapter's **local** required env vars. Vercel declares
+   none (`localRequiredEnv: []`) because the CLI reuses the `vercel link`
+   session — so a missing `VERCEL_TOKEN` never blocks a local deploy.
+   (Adapters without a session fallback still fail fast on missing env.)
 4. Calls `adapter.deploy(ctx)`. For Vercel, that shells out to
-   `npx --yes vercel deploy --yes --token "$VERCEL_TOKEN"` (and
-   `--prod` when the stanza opts in), captures stdout/stderr, and
-   parses the deploy URL. Going through `npx` means **no global
+   `npx --yes vercel deploy --yes` — adding `--token "$VERCEL_TOKEN"`
+   only when a token is present in the environment, and `--prod` when
+   the stanza opts in. Going through `npx` means **no global
    `npm i -g vercel` is required** — the CLI is fetched on demand the
    first time you deploy.
 5. Prints the URL on success; on failure, prints the vercel CLI's own
    stderr so you can see what went wrong.
+
+You *can* still `export VERCEL_TOKEN=…` before `hex deploy` for a fully
+non-interactive local deploy — it's just no longer required.
 
 A few useful flags:
 
@@ -121,20 +127,27 @@ when you click "Run workflow" in GitHub).
 
 ## Tokens
 
-For Vercel:
+The Vercel token is a **CI credential** — the piece a headless GitHub
+runner needs because it can't do an interactive browser login. Locally
+you don't need one: `vercel link` logs you in and the CLI reuses that
+session.
 
-1. Get a token at <https://vercel.com/account/tokens> — pick "Full
-   account" or scope to a single project.
-2. **Local** — export it in your shell (or a `.envrc`, password
-   manager, whatever you use). Hex never persists tokens.
-3. **CI** — set it as a GitHub repo secret:
+1. **Local** — run `vercel link` once (creates `.vercel/`, which is in
+   the template's `gitignore`) so the CLI knows which project to deploy
+   to. That login is all `hex deploy` needs. No token required. (You may
+   still export `VERCEL_TOKEN` for a fully non-interactive local deploy.)
+2. **CI** — the runner needs its own token. Get one at
+   <https://vercel.com/account/tokens> (any name, no expiry needed,
+   default scope), then store it as a GitHub repo secret:
    ```sh
    gh secret set VERCEL_TOKEN
    ```
    The emitted workflow already references `${{ secrets.VERCEL_TOKEN }}`.
+   Hex never persists tokens.
 
-`vercel link` once locally (creates `.vercel/`, which is in the
-template's `gitignore`) so the CLI knows which project to deploy to.
+> The `vite-ts-spa` setup flow walks you through all of this in order —
+> create the repo, link Vercel, deploy from the session, set the CI
+> secret, then push.
 
 ## Adding deploy to your own template
 

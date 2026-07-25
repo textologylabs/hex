@@ -19,6 +19,7 @@ export {
 } from './registry.js';
 export { nullAdapter } from './null-adapter.js';
 export { bootstrapBuiltinAdapters } from './bootstrap.js';
+export { emitCicdWorkflows } from './emit.js';
 export {
   VercelDeployError,
   createVercelAdapter,

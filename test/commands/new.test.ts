@@ -12,6 +12,7 @@ import {
   planPostRender,
 } from '../../src/commands/new.js';
 import { checklistFromTasks, writeChecklist } from '../../src/core/checklist/index.js';
+import { _resetRegistriesForTest, bootstrapBuiltinAdapters } from '../../src/core/deploy/index.js';
 import { lockfileSchema } from '../../src/core/lockfile/index.js';
 import type { Prompter } from '../../src/core/prompts/types.js';
 import { loadFromPath } from '../../src/core/sources/file-source.js';
@@ -522,5 +523,106 @@ describe('planPostRender', () => {
       setup: true,
     });
     expect(without.kind === 'has-tasks' && without.setupMessage).toBeUndefined();
+  });
+});
+
+describe('hex new — CI/CD workflow emission (M12.4 wiring)', () => {
+  beforeEach(() => {
+    _resetRegistriesForTest();
+    bootstrapBuiltinAdapters();
+  });
+  afterEach(() => {
+    _resetRegistriesForTest();
+  });
+
+  async function minimalPrompter(name: string): Promise<Prompter> {
+    return {
+      async text() {
+        return name;
+      },
+      async confirm() {
+        throw new Error('confirm not used');
+      },
+      async select() {
+        throw new Error('select not used');
+      },
+      async multiselect() {
+        throw new Error('multiselect not used');
+      },
+      async password() {
+        throw new Error('password not used');
+      },
+    };
+  }
+
+  it('emits .github/workflows/deploy.yml for a manifest with a cicd stanza', async () => {
+    const componentRoot = join(work, 'component');
+    await writeManifest(
+      componentRoot,
+      `type: component
+name: deployable
+version: 0.1.0
+
+prompts:
+  - project_name:
+      type: string
+      required: true
+
+deploy:
+  adapter: vercel
+cicd:
+  provider: github-actions
+`,
+    );
+    await writeFileEnsure(join(componentRoot, 'package.json'), '{"name": "{{ project_name }}"}\n');
+
+    const bundle = await loadFromPath(componentRoot);
+    const ctx = await collectNewAnswers(bundle, await minimalPrompter('my-app'), { sources: [] });
+
+    const out = join(work, 'out');
+    await executeNewRender(bundle, out, ctx, { force: false });
+
+    // The promised workflow is actually written now — this is the seam that
+    // used to be missing entirely.
+    const workflowPath = join(out, '.github', 'workflows', 'deploy.yml');
+    expect(existsSync(workflowPath)).toBe(true);
+    const workflow = parseYaml(await readFile(workflowPath, 'utf8'));
+    expect(workflow.jobs.deploy.steps.at(-1).env).toEqual({
+      VERCEL_TOKEN: '${{ secrets.VERCEL_TOKEN }}',
+    });
+
+    // Emitted as a generated artifact: it is NOT tracked in the lockfile
+    // file-hash table (so upgrade never tries to reconcile it).
+    const lock = lockfileSchema.parse(
+      parseYaml(await readFile(join(out, '.hex', 'lockfile.yaml'), 'utf8')),
+    );
+    expect(lock.files.map((f) => f.path)).not.toContain('.github/workflows/deploy.yml');
+  });
+
+  it('emits nothing for a manifest without a cicd stanza', async () => {
+    const componentRoot = join(work, 'plain');
+    await writeManifest(
+      componentRoot,
+      `type: component
+name: plain
+version: 0.1.0
+
+prompts:
+  - project_name:
+      type: string
+      required: true
+`,
+    );
+    await writeFileEnsure(join(componentRoot, 'package.json'), '{"name": "{{ project_name }}"}\n');
+
+    const bundle = await loadFromPath(componentRoot);
+    const ctx = await collectNewAnswers(bundle, await minimalPrompter('plain-app'), {
+      sources: [],
+    });
+
+    const out = join(work, 'out');
+    await executeNewRender(bundle, out, ctx, { force: false });
+
+    expect(existsSync(join(out, '.github'))).toBe(false);
   });
 });

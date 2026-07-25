@@ -84,7 +84,13 @@ export function createVercelAdapter(opts: CreateVercelAdapterOptions = {}): Depl
 
   return {
     name: 'vercel',
+    // Headless (CI) needs the token; the github-actions provider wires it in
+    // as `secrets.VERCEL_TOKEN`.
     requiredEnv: [VERCEL_TOKEN_ENV],
+    // A local deploy needs no token: `vercel link` establishes an interactive
+    // login session (~/.vercel) the CLI reuses, so the developer's first
+    // `hex deploy` rides that session. The token is a CI-only credential.
+    localRequiredEnv: [],
     validateConfig(stanza) {
       const parsed = vercelConfigSchema.safeParse(stanza);
       if (!parsed.success) {
@@ -97,11 +103,13 @@ export function createVercelAdapter(opts: CreateVercelAdapterOptions = {}): Depl
     },
     async deploy(ctx: DeployContext): Promise<DeployResult> {
       const config = vercelConfigSchema.parse(ctx.config);
+      // Token is optional locally: when set (CI, or a developer who exported
+      // one) we pass `--token` for non-interactive auth; when absent we let the
+      // vercel CLI use the login session from `vercel link`. Either way `--yes`
+      // suppresses the CLI's own interactive prompts so the deploy never hangs.
       const token = ctx.env[VERCEL_TOKEN_ENV];
-      if (!token) {
-        throw new VercelDeployError(`${VERCEL_TOKEN_ENV} is not set`);
-      }
-      const args = ['--yes', 'vercel', 'deploy', '--yes', '--token', token];
+      const args = ['--yes', 'vercel', 'deploy', '--yes'];
+      if (token) args.push('--token', token);
       if (config.prod) args.push('--prod');
 
       let result: VercelRunnerResult;
