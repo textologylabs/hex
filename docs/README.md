@@ -48,6 +48,7 @@ notes, not part of the day-to-day user path.
 
 | Page | Status |
 |------|--------|
+| [Roadmap & post-1.0 parking notes](./roadmap.md) | **1.0 shipped, dev paused** — what 1.0 delivers, parked work + un-park signals, known limitations, how to resume. |
 | [Hosted-registry path](./marketplace.md) | **Parked** at M9.9 — the more-ambitious hosted marketplace, behind the git-catalogue model. |
 | [Registry deploy runbook](./registry-deploy.md) | **Parked** — operational runbook for standing up the hosted registry. |
 | [Testing & manual QA](./testing.md) | Internal — the test strategy and the manual cross-platform walk. |
