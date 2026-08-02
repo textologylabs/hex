@@ -11,13 +11,23 @@ on:
 # laptop. The same prepublishOnly hook gates here as it does for a local
 # `npm publish`, so a failing test or stale build can never reach npm.
 #
-# Required secret: NPM_TOKEN — a "Automation" token from
-# https://www.npmjs.com/settings/<your-user>/tokens. Add via:
-#   gh secret set NPM_TOKEN -R textologylabs/hex
+# Authentication is npm trusted publishing (OIDC): no NPM_TOKEN, nothing to
+# store, expire or rotate. npm deprecates 2FA-bypass granular tokens for direct
+# publishing around January 2027. https://docs.npmjs.com/trusted-publishers
+#
+# One-time setup, on https://www.npmjs.com/package/@hexology/hex/access
+#   Trusted Publisher -> GitHub Actions
+#     Organization or user: textologylabs
+#     Repository:           hex          (bare name, not owner/name)
+#     Workflow filename:    release.yml  (must match this file EXACTLY — a
+#                                         .yaml/.yml slip surfaces as a 404
+#                                         "package not found" on token exchange)
+#
 # GITHUB_TOKEN is set automatically by Actions for the gh-release step.
 
 permissions:
   contents: write  # gh release create
+  id-token: write  # OIDC token for trusted publishing
 
 jobs:
   release:
@@ -28,10 +38,17 @@ jobs:
           # Fetch full history so the release notes job can read CHANGELOG.md.
           fetch-depth: 0
 
+      # No registry-url: it makes setup-node write an .npmrc wired to
+      # NODE_AUTH_TOKEN, and a placeholder value there stops npm falling back
+      # to OIDC. npm defaults to registry.npmjs.org anyway.
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+
+      # npm >= 11.5.1 speaks OIDC. Pinned to 11 because npm@latest is now v12,
+      # which requires Node >= 22.
+      - name: Use an npm that speaks OIDC
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
@@ -54,8 +71,6 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Extract release notes from CHANGELOG
         id: notes
