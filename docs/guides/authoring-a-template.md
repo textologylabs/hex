@@ -12,6 +12,12 @@ field-by-field spec) and the [CLI reference](../reference/cli.md). If you haven'
 scaffolded *from* a template yet, skim [getting started](../getting-started.md)
 first.
 
+> **Already have a working repo you treat as a template?** You don't have to
+> author from scratch — [`hex hexify`](../reference/cli.md#hex-hexify) converts
+> it in place: a guided dialogue parameterises the concrete values, generates
+> the manifest, and proves the result renders back byte-identical before
+> writing anything.
+
 ## The mental model
 
 A template (Hex calls it a **bundle**) is just a directory:

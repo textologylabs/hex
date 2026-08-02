@@ -55,6 +55,7 @@ Per-command specifics are noted in each section below.
 | [`hex hive info`](#hex-hive-info) | Show a package's versions + where it resolves from. |
 | [`hex hive validate`](#hex-hive-validate) | Schema-validate a `marketplace.yaml`. |
 | **Authoring & publishing** | |
+| [`hex hexify`](#hex-hexify) | Convert a plain template repo into a hex template, in place. |
 | [`hex lint`](#hex-lint) | Check a stubbable component against prod-clean conventions. |
 | [`hex publish`](#hex-publish) | Publish a component/recipe to a registry. |
 | **Deprecated aliases** | [`sources`](#deprecated-aliases) · [`search`](#deprecated-aliases) · [`browse`](#deprecated-aliases) · [`marketplace`](#deprecated-aliases) |
@@ -370,6 +371,51 @@ hex hive validate [path]
 ---
 
 ## Authoring & publishing
+
+### `hex hexify`
+
+Convert a plain, manually-maintained template repo into a hex template **in
+place**: a guided dialogue proposes parameterisations (seeded from
+`package.json` — name, description, author, license — plus your own
+value→prompt pairs), then Hex injects a generated `.hex/manifest.yaml` (one
+string prompt per parameter, defaults = the original concrete values),
+substitutes `{{ placeholder }}`s across file contents **and** filenames,
+neutralises pre-existing template-engine hazards (GitHub Actions'
+`${{ secrets.X }}`, stray `{{` / `{%` / `#}` sequences), and writes a
+`.gitignore`-seeded `.hexignore`.
+
+```
+hex hexify [flags]      # runs on the current directory
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--dry-run` | `false` | Run the whole pipeline — round-trip proof included — and write **nothing**. |
+| `--json` | `false` | Emit the hexify report as machine-readable JSON. |
+
+**The contract** — nothing is written unless the **round-trip proof** passes:
+the hexified template is built in a throwaway shadow directory and rendered
+back with the original values as answers; every file must come back
+byte-identical to your repo before a single in-place byte moves. On top of
+that, the preflight requires a **clean git tree** — review the result with
+`git diff`, undo the rewrites with `git checkout .`, and remove the newly
+generated files with `git clean -fd -- .hex .hexignore`.
+
+**Preflight refusals (exit 1)** — already a hex template (`.hex/manifest.yaml`
+exists); a hex *app* (lockfile found, here or in a parent); not a git repo;
+dirty working tree.
+
+**After hexify** — commit, then: `hex new <repo>` scaffolds fresh instances;
+existing hand-copied instances can be [`hex adopt`](#hex-adopt)ed — the fit
+report's fit-% is your hexification quality gauge (low fit pinpoints exactly
+where the parameterisation is wrong).
+
+**Exit codes** — `0` on success (and on a declined confirm — nothing
+written); `1` on preflight refusal or a failed round-trip proof; `130` on
+cancel.
+
+**V1 scope** — single component template, string prompts only; prompt
+patterns, sections, and recipe awareness are follow-ups.
 
 ### `hex lint`
 
