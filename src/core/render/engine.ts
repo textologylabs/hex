@@ -66,7 +66,7 @@ export type RenderOptions = {
 
 const BINARY_SAMPLE_BYTES = 8192;
 
-function looksBinary(buf: Buffer): boolean {
+export function looksBinary(buf: Buffer): boolean {
   const end = Math.min(BINARY_SAMPLE_BYTES, buf.length);
   for (let i = 0; i < end; i++) {
     if (buf[i] === 0) return true;
