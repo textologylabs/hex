@@ -11,10 +11,7 @@ import {
 import { buildDoctorReport } from '../../src/commands/doctor.js';
 import { executeNewRender } from '../../src/commands/new.js';
 import { runPlainUpgrade } from '../../src/commands/upgrade.js';
-import {
-  _resetRegistriesForTest,
-  bootstrapBuiltinAdapters,
-} from '../../src/core/deploy/index.js';
+import { _resetRegistriesForTest, bootstrapBuiltinAdapters } from '../../src/core/deploy/index.js';
 import { checkLockfileIntegrity, readLockfileUpward } from '../../src/core/lockfile/index.js';
 import { createNonInteractivePrompter } from '../../src/core/prompts/non-interactive-prompter.js';
 import { loadFromPath } from '../../src/core/sources/file-source.js';
