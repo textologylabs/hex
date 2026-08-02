@@ -629,7 +629,7 @@ export function looksLikePath(arg: string): boolean {
   );
 }
 
-async function resolveTemplate(arg: string | undefined): Promise<ComponentBundle> {
+export async function resolveTemplate(arg: string | undefined): Promise<ComponentBundle> {
   if (arg && looksLikePath(arg)) {
     return loadFromPath(arg, 'file');
   }

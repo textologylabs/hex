@@ -369,6 +369,46 @@ and add it to your config. Expect:
 - `hex new other-ns/banned my-app` fails with the block error.
 - A bare `hex new <override-name>` redirects to the override target.
 
+## 6. `hex adopt` end-to-end (Hex 2.0)
+
+The automated suite covers the classification and the upgrade round-trip;
+this walk covers the real-TTY prompt flow and the reversibility promise on
+a live tree.
+
+### 6.1 Adopt a scratch project
+
+```sh
+# Manufacture a "manually instantiated" project: render, then strip .hex/
+node dist/cli.js new templates/node-ts-lib /tmp/adopt-scratch
+rm -rf /tmp/adopt-scratch/.hex
+
+# Drift it like weeks of development would
+echo "// mine" >> /tmp/adopt-scratch/src/index.ts
+echo "notes" > /tmp/adopt-scratch/NOTES.md
+
+# Preview first — must leave ZERO trace (no .hex, tree untouched)
+cd /tmp/adopt-scratch && node <repo>/dist/cli.js adopt <repo>/templates/node-ts-lib --dry-run
+
+# Adopt for real; prompts render cleanly at the TTY
+node <repo>/dist/cli.js adopt <repo>/templates/node-ts-lib
+```
+
+Expect: fit report shows `src/index.ts` edited, `NOTES.md` untracked, the
+rest clean; only `.hex/` was added.
+
+### 6.2 Downstream + reversal
+
+```sh
+node <repo>/dist/cli.js doctor      # integrity agrees with the fit report
+# bump a copy of the template, then:
+node <repo>/dist/cli.js upgrade <path-to-bumped-copy>   # user edit survives
+rm -rf .hex                          # full reversal — tree back to pre-adopt
+```
+
+Expect: upgrade behaves exactly as on a scaffolded app; after `rm -rf .hex`
+the tree is byte-identical to the pre-adopt state (`git status` clean if you
+committed before adopting).
+
 ---
 
 ## Release runbook
@@ -443,6 +483,8 @@ Before tagging a release:
 - [ ] §5.2 against `textologylabs/hex-marketplace` over `https://`.
       §5.4 block + override against a branch you control. §5.3 once Hex
       is on npm.
+- [ ] §6.1 + §6.2 adopt walk (dry-run zero-trace, fit report, upgrade,
+      `rm -rf .hex` reversal).
 - [ ] `npm run check` passes.
 - [ ] CHANGELOG entry moved from `[Unreleased]` to `[X.Y.Z]` with date.
 - [ ] `package.json` version bumped + committed.

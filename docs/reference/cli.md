@@ -38,6 +38,7 @@ Per-command specifics are noted in each section below.
 |---------|---------|
 | **Scaffolding** | |
 | [`hex new`](#hex-new) | Render a template into a new directory. |
+| [`hex adopt`](#hex-adopt) | Link an existing project to a template (writes `.hex/` only). |
 | [`hex list`](#hex-list) | List templates across configured sources. |
 | [`hex setup`](#hex-setup) | Walk outstanding post-scaffold setup tasks. |
 | [`hex upgrade`](#hex-upgrade) | Upgrade a generated app to a newer template version. |
@@ -194,6 +195,52 @@ hex doctor [--json]
 | `--json` | `false` | Emit machine-readable JSON. |
 
 **Exit codes** — always `0` (informational; it reports rather than gates).
+
+### `hex adopt`
+
+Link an **existing** project — one never scaffolded by Hex — to a template,
+so `hex doctor` and `hex upgrade` work from then on. The template is rendered
+into a throwaway shadow directory (never into your project); that tree becomes
+`.hex/pristine/`, and the lockfile records the *template's* file hashes, so
+your project's own changes surface as ordinary drift.
+
+```
+hex adopt [template] [flags]
+```
+
+The `template` argument accepts the same forms as `hex new` (path, registered
+name, catalogue address); omit it for the interactive picker.
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--dry-run` | `false` | Render + compare and print the fit report; write **nothing**. |
+| `--json` | `false` | Emit the fit report as machine-readable JSON. |
+| `--answers <file>` | — | Answer prompts non-interactively from a YAML file (requires an explicit template argument). |
+| `--trust-local` | `false` | Run JS hooks unsandboxed for local `FileSource` templates. |
+
+**The contract** — `hex adopt` writes `.hex/` **only**. Nothing else in your
+tree is created, modified, or deleted, and `rm -rf .hex` reverses the whole
+thing. `--dry-run` is a pure preview.
+
+**The fit report** classifies every file:
+
+| Group | Meaning |
+|-------|---------|
+| clean | Project bytes match the template exactly. |
+| edited | Rendered by the template, but yours differs — preserved by `hex upgrade`'s 3-way merge. |
+| missing | Rendered by the template, absent from your project — treated as your deletion. |
+| untracked | Yours alone; the template doesn't render it — ignored by upgrades. |
+
+`fit % = clean / recorded`. A fit preview on a known instance is also a
+quality gauge for a freshly authored template: low fit means the template's
+parameterisation doesn't reproduce the project it supposedly describes.
+
+**Exit codes** — `0` on success *even at low fit* (fit is information, not a
+gate — inspect and decide); `1` on hard errors (already a hex app, recipe
+template, unreadable answers file, zero-file render); `130` on cancel.
+
+**V1 limitation** — component templates only; adopting against a recipe is
+not yet supported.
 
 ---
 

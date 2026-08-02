@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { brand } from './brand/colors.js';
 import { VERSION, splash } from './brand/splash.js';
 import { describeTopLevelError } from './cli-errors.js';
+import { registerAdopt } from './commands/adopt.js';
 import { registerBrowse } from './commands/browse.js';
 import { registerDeploy } from './commands/deploy.js';
 import { registerDoctor } from './commands/doctor.js';
@@ -34,6 +35,7 @@ async function main() {
     .version(VERSION, '-v, --version', 'print version and exit')
     .addHelpText('beforeAll', `${splash()}\n`);
 
+  registerAdopt(program);
   registerBrowse(program);
   registerDeploy(program);
   registerDoctor(program);
