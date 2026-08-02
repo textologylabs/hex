@@ -234,7 +234,7 @@ describe('the workplace arc: hexify → new → adopt', () => {
     const answersFile = join(work, 'answers.yaml');
     await writeFile(
       answersFile,
-      `project_name: zed-portal\ndescription: The Acme portal\nlicense: MIT\n`,
+      'project_name: zed-portal\ndescription: The Acme portal\nlicense: MIT\n',
       'utf8',
     );
     const adopt = adoptEffects(repo);
