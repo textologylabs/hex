@@ -7,6 +7,7 @@ import { registerAdopt } from './commands/adopt.js';
 import { registerBrowse } from './commands/browse.js';
 import { registerDeploy } from './commands/deploy.js';
 import { registerDoctor } from './commands/doctor.js';
+import { registerHexify } from './commands/hexify.js';
 import { registerHive } from './commands/hive.js';
 import { registerLint } from './commands/lint.js';
 import { registerList } from './commands/list.js';
@@ -39,6 +40,7 @@ async function main() {
   registerBrowse(program);
   registerDeploy(program);
   registerDoctor(program);
+  registerHexify(program);
   registerHive(program);
   registerLint(program);
   registerList(program);
