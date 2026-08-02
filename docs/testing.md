@@ -411,6 +411,56 @@ committed before adopting).
 
 ---
 
+## 7. `hex hexify` end-to-end (Hex 2.0)
+
+The automated suite covers the escape/substitution engine, the round-trip
+gate, and the workplace arc; this walk covers the real-TTY guided dialogue
+and the git-is-the-undo promise on a live repo.
+
+### 7.1 Hexify a scratch "manual template" repo
+
+```sh
+# Manufacture a plain template repo (concrete values, a hazard, committed)
+mkdir /tmp/hexify-scratch && cd /tmp/hexify-scratch
+printf '{\n  "name": "acme-portal",\n  "description": "The portal",\n  "license": "MIT"\n}\n' > package.json
+mkdir -p src .github/workflows
+printf 'export const app = "acme-portal";\n' > src/acme-portal.config.ts
+printf 'env:\n  TOKEN: ${{ secrets.NPM_TOKEN }}\n' > .github/workflows/ci.yml
+printf 'node_modules/\n' > .gitignore
+git init -b main && git add -A && git commit -m init
+
+# Preview first — full pipeline incl. the round-trip proof, ZERO writes
+node <repo>/dist/cli.js hexify --dry-run
+
+# Hexify for real; confirm the proposed candidates at the TTY
+node <repo>/dist/cli.js hexify
+```
+
+Expect: the dialogue proposes `project_name` / `description` / `license`
+with occurrence counts; the report ends with the round-trip proof line;
+`git status` shows rewrites plus new `.hex/manifest.yaml` and `.hexignore`;
+`src/acme-portal.config.ts` is now `src/{{ project_name }}.config.ts`; the
+workflow file's `${{ secrets.NPM_TOKEN }}` is escaped but renders back
+literally.
+
+### 7.2 The reuse loop + reversal
+
+```sh
+git add -A && git commit -m "hexify"
+node <repo>/dist/cli.js new /tmp/hexify-scratch /tmp/hexify-instance
+# accept the defaults → the instance is byte-identical to the pre-hexify repo
+diff -r --exclude=.hex --exclude=.hexignore --exclude=.git /tmp/hexify-instance <pre-hexify checkout>
+
+# Reversal story (on an uncommitted hexify): git is the undo
+git checkout . && git clean -fd -- .hex .hexignore
+```
+
+Expect: `hex new` with defaults reproduces the original files exactly; a
+different `project_name` re-parameterises contents and the templated
+filename; the reversal leaves `git status` clean.
+
+---
+
 ## Release runbook
 
 Releases are tag-triggered (M14.2). The actual publish happens in
@@ -485,6 +535,8 @@ Before tagging a release:
       is on npm.
 - [ ] §6.1 + §6.2 adopt walk (dry-run zero-trace, fit report, upgrade,
       `rm -rf .hex` reversal).
+- [ ] §7.1 + §7.2 hexify walk (guided dialogue, round-trip proof,
+      defaults-render byte-identity, git reversal).
 - [ ] `npm run check` passes.
 - [ ] CHANGELOG entry moved from `[Unreleased]` to `[X.Y.Z]` with date.
 - [ ] `package.json` version bumped + committed.
