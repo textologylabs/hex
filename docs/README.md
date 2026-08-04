@@ -7,6 +7,10 @@ This is the documentation index.
 first app in ten minutes. Then [Authoring a template](./guides/authoring-a-template.md)
 if you want to build your own.
 
+**Already have template repos your teams copy by hand?** The
+[brownfield handbook](./guides/brownfield-reuse.md) is your path: convert the
+templates in place, link the existing copies, and propagate improvements.
+
 The docs split three ways: **guides** walk a scenario start to finish,
 **reference** specs every field and flag, and a handful of **cross-cutting**
 pages cover topics that span both.
@@ -17,6 +21,7 @@ pages cover topics that span both.
 |-------|-------------------|
 | [Getting started](./getting-started.md) | Scaffold an app from an existing template (the 10-minute path). |
 | [Authoring a template](./guides/authoring-a-template.md) | Build a template of your own — prompts, Nunjucks, hooks, setup tasks. |
+| [Brownfield reuse handbook](./guides/brownfield-reuse.md) | Bring an existing template estate under management — hexify, adopt, upgrade. |
 | [Set up a catalogue for your org](./guides/catalogue-for-your-org.md) | Distribute curated templates to a team via a git-catalogue, no server. |
 | [Authoring migrations](./guides/authoring-migrations.md) | Ship a migration so `hex upgrade` carries user edits across a version bump. |
 | [Authoring stubbable components](./guides/stubbable-components.md) | Build a component that ships a prod-clean stub alongside the real thing. |

@@ -33,7 +33,7 @@ file is the narrative context the board can't hold.
 
 ### 1. Hosted registry (M9.9)
 **Parked.** The git-catalogue model covers current needs (incl. the
-NatWest use case). The hosted-registry surface is *built and unit-tested*
+internal-enterprise use case). The hosted-registry surface is *built and unit-tested*
 but wired to no command — `hex publish` is hidden/`[experimental]`, and
 the signed-package resolution path (`resolveAddress` + `trustedKeys`) has
 no caller (fenced in M15.6).
