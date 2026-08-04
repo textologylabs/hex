@@ -18,6 +18,11 @@ hex new ~/hex-src/templates/vite-ts-spa my-app   # walk the prompts
 cd my-app && npm run dev                          # see it run
 ```
 
+Already have template repos your teams copy by hand? The
+**[brownfield reuse handbook](./docs/guides/brownfield-reuse.md)** converts
+them in place (`hex hexify`), links the existing copies (`hex adopt`), and
+propagates improvements (`hex upgrade`).
+
 Reference docs: **[CLI commands](./docs/reference/cli.md)** ·
 **[Manifest fields](./docs/reference/manifest.md)** ·
 **[Security model](./docs/security.md)**.

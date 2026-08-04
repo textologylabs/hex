@@ -76,7 +76,7 @@ What's missing for production:
 
 The git-catalogue model (M13) covers the immediate use cases:
 
-- **Internal-team templating** — NatWest, Textology, any company
+- **Internal-team templating** — any company's platform team
   platform team. A catalogue repo + PR review IS the governance model
   they already use for code. No infra to run, no auth to manage.
 - **OSS template sharing** — small communities can ship a
