@@ -253,6 +253,76 @@ describe('the workplace arc: hexify → new → adopt', () => {
   });
 });
 
+describe('hexify --against: the H2 mining arc', () => {
+  it('a mined parameter makes the instance adopt clean where seeding alone would read edited', async () => {
+    const repo = await buildWorkplaceRepo();
+    // A value package.json seeding can never discover — the H2 case.
+    await writeFileEnsure(
+      join(repo, 'conf', 'service.yaml'),
+      'service: acme-portal-svc\nowner: platform-team\n',
+    );
+    await git(repo, 'add', '-A');
+    await git(repo, 'commit', '-q', '-m', 'service config');
+
+    // The hand-copied instance: values swapped throughout, one genuine
+    // team edit (src/index.ts), everything else faithful.
+    const instance = join(work, 'zed-instance');
+    await writeFileEnsure(
+      join(instance, 'package.json'),
+      '{\n  "name": "zed-portal",\n  "description": "The Acme portal",\n  "license": "MIT"\n}\n',
+    );
+    await writeFileEnsure(
+      join(instance, 'src', 'zed-portal.config.ts'),
+      'export const appName = "zed-portal";\n',
+    );
+    await writeFileEnsure(
+      join(instance, 'src', 'index.ts'),
+      'export const boot = () => "patched";\n',
+    );
+    await writeFileEnsure(
+      join(instance, '.github', 'workflows', 'ci.yml'),
+      'env:\n  TOKEN: ${{ secrets.NPM_TOKEN }}\n',
+    );
+    await writeFileEnsure(join(instance, 'logo.png'), PNG_BYTES);
+    await writeFileEnsure(join(instance, '.gitignore'), 'node_modules/\ndist/\n');
+    await writeFileEnsure(
+      join(instance, 'conf', 'service.yaml'),
+      'service: zed-portal-svc\nowner: platform-team\n',
+    );
+
+    // Hexify WITH mining — the defaults prompter accepts every proposal,
+    // including the mined acme-portal-svc pair under its suggested name.
+    const cap = hexifyEffects();
+    await runHexifyCommand(repo, cap.effects, { against: instance });
+    expect(cap.stderr).toEqual([]);
+    expect(cap.exitCodes).toEqual([]);
+
+    const bundle = await loadFromPath(repo);
+    const promptNames = (bundle.manifest.prompts ?? []).map((p) => p.name);
+    expect(promptNames).toContain('acme_portal_svc');
+
+    // Adopt the instance with its real values: the service file must be
+    // CLEAN — without the mined parameter it would classify edited.
+    const answersFile = join(work, 'answers.yaml');
+    await writeFile(
+      answersFile,
+      'project_name: zed-portal\nacme_portal_svc: zed-portal-svc\n',
+      'utf8',
+    );
+    const adopt = adoptEffects(repo);
+    await runAdoptCommand(instance, 'acme-portal', adopt.effects, {
+      json: true,
+      answers: answersFile,
+    });
+    expect(adopt.exitCodes).toEqual([]);
+    const fit = JSON.parse(adopt.stdout.join('')) as AdoptFitReport;
+    expect(fit.clean).toContain('conf/service.yaml');
+    expect(fit.clean).toContain('src/zed-portal.config.ts');
+    expect(fit.edited).toEqual(['src/index.ts']);
+    expect(fit.fitPercent).toBeGreaterThan(80);
+  });
+});
+
 function adoptEffects(templateRoot: string): {
   effects: AdoptCommandEffects;
   stdout: string[];

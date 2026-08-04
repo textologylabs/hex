@@ -218,6 +218,16 @@ name, catalogue address); omit it for the interactive picker.
 | `--json` | `false` | Emit the fit report as machine-readable JSON. |
 | `--answers <file>` | — | Answer prompts non-interactively from a YAML file (requires an explicit template argument). |
 | `--trust-local` | `false` | Run JS hooks unsandboxed for local `FileSource` templates. |
+| `--readopt` | `false` | Replace an existing adoption without asking (required to re-adopt in `--answers` mode). |
+
+**Re-adopting** — running `hex adopt` on an already-adopted project asks
+*"Already adopted (name@version) — re-adopt and replace the existing
+adoption?"* (default No; declining exits `0` with nothing changed).
+Confirming — or passing `--readopt` — replaces the adoption wholesale: fresh
+`.hex/pristine/` and lockfile, which **resets the merge base** for future
+upgrades. In `--answers` mode the question can't be asked, so `--readopt` is
+required explicitly. Running from a *subdirectory* of a hex app still refuses
+outright — re-adopt only applies at the app root.
 
 **The contract** — `hex adopt` writes `.hex/` **only**. Nothing else in your
 tree is created, modified, or deleted, and `rm -rf .hex` reverses the whole
@@ -237,8 +247,10 @@ quality gauge for a freshly authored template: low fit means the template's
 parameterisation doesn't reproduce the project it supposedly describes.
 
 **Exit codes** — `0` on success *even at low fit* (fit is information, not a
-gate — inspect and decide); `1` on hard errors (already a hex app, recipe
-template, unreadable answers file, zero-file render); `130` on cancel.
+gate — inspect and decide) and on a declined re-adopt; `1` on hard errors
+(inside a hex app's subdirectory, re-adopt in answers mode without
+`--readopt`, recipe template, unreadable answers file or lockfile, zero-file
+render); `130` on cancel.
 
 **V1 limitation** — component templates only; adopting against a recipe is
 not yet supported.
@@ -392,6 +404,18 @@ hex hexify [flags]      # runs on the current directory
 |------|---------|---------|
 | `--dry-run` | `false` | Run the whole pipeline — round-trip proof included — and write **nothing**. |
 | `--json` | `false` | Emit the hexify report as machine-readable JSON. |
+| `--against <instance>` | — | Path to a known **instance** of this template: the template↔instance diff is mined for candidate value pairs, proposed with evidence in the same confirm dialogue. |
+
+**`--against` (instance-informed mining)** — pointing hexify at a project that
+was hand-copied from this template turns parameterisation discovery from
+guesswork into evidence: everywhere the template says `acme-portal` and the
+instance consistently says `zed-portal` is a parameter site, including values
+`package.json` seeding can never find (service names in manifests, ports, org
+slugs). Mined pairs are proposed with their evidence ("↔ `zed-portal` in the
+instance, 7 differing spots") and a suggested prompt name; they only ever
+*propose* — the confirm dialogue and the round-trip proof are unchanged. Best
+results come from an instance at an **early** revision (check one out first);
+later drift just produces junk proposals to decline.
 
 **The contract** — nothing is written unless the **round-trip proof** passes:
 the hexified template is built in a throwaway shadow directory and rendered

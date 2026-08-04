@@ -409,6 +409,10 @@ Expect: upgrade behaves exactly as on a scaffolded app; after `rm -rf .hex`
 the tree is byte-identical to the pre-adopt state (`git status` clean if you
 committed before adopting).
 
+Also check re-adopt (1.1): run `adopt` again on the adopted project — it must
+ask "Already adopted (…) — re-adopt…?" with default No; declining prints
+"re-adopt declined" and changes nothing; confirming replaces the adoption.
+
 ---
 
 ## 7. `hex hexify` end-to-end (Hex 2.0)
@@ -458,6 +462,10 @@ git checkout . && git clean -fd -- .hex .hexignore
 Expect: `hex new` with defaults reproduces the original files exactly; a
 different `project_name` re-parameterises contents and the templated
 filename; the reversal leaves `git status` clean.
+
+Also check `--against` (1.1): make a copy of the pre-hexify repo with the
+name swapped (a fake instance), then `hexify --against <copy>` — the dialogue
+must propose the swapped values with "↔ … in the instance" evidence.
 
 ---
 

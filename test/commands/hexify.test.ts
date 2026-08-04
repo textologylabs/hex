@@ -404,6 +404,71 @@ describe('runHexifyCommand', () => {
     expect(existsSync(join(repo, '.hex'))).toBe(false);
   });
 
+  it('--against refuses a path that is not a directory', async () => {
+    const repo = await buildRepoFixture();
+    const { prompter } = scriptedPrompter();
+    const cap = captureEffects(prompter);
+
+    await runHexifyCommand(repo, cap.effects, { against: join(work, 'no-such-dir') });
+
+    expect(cap.exitCodes).toEqual([1]);
+    expect(cap.stderr.join('')).toMatch(/--against path is not a directory/);
+    expect(cap.shadowDirs).toEqual([]);
+  });
+
+  it('--against mines instance pairs, proposes with evidence, and skips seed duplicates', async () => {
+    const repo = await buildRepoFixture();
+    // A value package.json seeding can never discover.
+    await writeFileEnsure(
+      join(repo, 'conf', 'service.yaml'),
+      'service: acme-portal-svc\nowner: platform-team\n',
+    );
+    // The "manually instantiated" project: same shape, values swapped,
+    // plus genuine drift.
+    const instance = join(work, 'instance');
+    await writeFileEnsure(
+      join(instance, 'package.json'),
+      '{\n  "name": "zed-portal",\n  "description": "The Acme portal",\n  "license": "MIT"\n}\n',
+    );
+    await writeFileEnsure(
+      join(instance, 'src', 'zed-portal.config.ts'),
+      'export const app = "zed-portal";\n',
+    );
+    await writeFileEnsure(
+      join(instance, 'conf', 'service.yaml'),
+      'service: zed-portal-svc\nowner: platform-team\nannotations: added-by-team\n',
+    );
+    await writeFileEnsure(join(instance, 'README.md'), 'plain readme\n');
+
+    const { prompter } = scriptedPrompter();
+    const confirmMessages: string[] = [];
+    const baseConfirm = prompter.confirm.bind(prompter);
+    prompter.confirm = async (opts) => {
+      confirmMessages.push(opts.message);
+      return baseConfirm(opts);
+    };
+    const cap = captureEffects(prompter);
+
+    await runHexifyCommand(repo, cap.effects, { against: instance });
+
+    expect(cap.stderr).toEqual([]);
+    expect(cap.exitCodes).toEqual([]);
+
+    // The mined pair was proposed WITH its instance evidence, and the
+    // accepted parameter landed in the manifest under the suggested name.
+    expect(confirmMessages.some((m) => m.includes('↔ "zed-portal-svc"'))).toBe(true);
+    const manifest = await parseManifestFile(join(repo, '.hex', 'manifest.yaml'));
+    expect(manifest.prompts?.map((p) => p.name)).toContain('acme_portal_svc');
+    expect(await readFile(join(repo, 'conf', 'service.yaml'), 'utf8')).toBe(
+      'service: {{ acme_portal_svc }}\nowner: platform-team\n',
+    );
+
+    // "acme-portal" was already accepted from the package.json seeds —
+    // the identical mined pair must NOT be re-proposed.
+    const minedProposals = confirmMessages.filter((m) => m.includes('↔ "'));
+    expect(minedProposals.some((m) => m.includes('"acme-portal"?'))).toBe(false);
+  });
+
   it('works without a package.json via the custom-parameter loop', async () => {
     const repo = join(work, 'no-pkg');
     await writeFileEnsure(join(repo, 'conf.txt'), 'endpoint: special-sauce.internal\n');
