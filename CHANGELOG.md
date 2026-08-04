@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] — 2026-08-04
+
+The brownfield reuse release: convert manually-maintained template repos
+into hex templates (`hex hexify`, with instance-informed candidate mining
+via `--against`), link existing hand-copied projects to them
+(`hex adopt`, now with re-adopt), and upgrade from there. The workplace
+arc — hexify → adopt → upgrade — ships complete.
 
 ### Added
 
