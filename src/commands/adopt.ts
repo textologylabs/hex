@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
@@ -48,6 +48,12 @@ export type AdoptCommandOptions = {
   /** Path to a YAML answers file — implies fully non-interactive prompts. */
   answers?: string;
   trustLocal?: boolean;
+  /**
+   * Replace an existing adoption without asking (A5). Interactive runs
+   * get a y/N question instead; answers-mode runs REQUIRE this flag to
+   * re-adopt.
+   */
+  readopt?: boolean;
 };
 
 export type AdoptCommandEffects = {
@@ -177,34 +183,9 @@ export async function runAdoptCommand(
   effects: AdoptCommandEffects,
   opts: AdoptCommandOptions = {},
 ): Promise<void> {
-  // Guard 1 — already a hex app? Cheapest check first, before any prompt
-  // or network work. The upward walk also refuses adopting from a nested
-  // subdirectory of an existing hex app, which is what we want.
-  let existing: Awaited<ReturnType<typeof readLockfileUpward>>;
-  try {
-    existing = await readLockfileUpward(projectRoot);
-  } catch (err) {
-    effects.stderr.write(
-      `${brand.error(
-        `found a .hex/lockfile.yaml but it is unreadable: ${
-          err instanceof Error ? err.message : String(err)
-        } — fix or remove it before adopting`,
-      )}\n`,
-    );
-    effects.setExitCode(1);
-    return;
-  }
-  if (existing) {
-    effects.stderr.write(
-      `${brand.error(
-        `this project is already a hex app (lockfile in ${existing.rootDir}) — re-adopt is not yet supported`,
-      )}\n`,
-    );
-    effects.setExitCode(1);
-    return;
-  }
-
-  // Guard 2 — `--answers` preflight (mirrors `hex new`).
+  // Guard 1 — `--answers` preflight (mirrors `hex new`). Runs first
+  // because it decides whether the session is interactive, which the
+  // re-adopt question below depends on.
   let supplied: Answers | undefined;
   if (opts.answers !== undefined) {
     if (!templateArg) {
@@ -223,6 +204,60 @@ export async function runAdoptCommand(
         return;
       }
       throw err;
+    }
+  }
+
+  const prompter = effects.prompterFactory(supplied === undefined);
+
+  // Guard 2 — already a hex app? Nested subdirectories hard-refuse; the
+  // app root itself gets the A5 re-adopt path: a y/N question when
+  // interactive, `--readopt` when in answers mode. Confirming replaces
+  // the previous adoption wholesale (fresh pristine + lockfile — the
+  // merge base resets).
+  let existing: Awaited<ReturnType<typeof readLockfileUpward>>;
+  try {
+    existing = await readLockfileUpward(projectRoot);
+  } catch (err) {
+    effects.stderr.write(
+      `${brand.error(
+        `found a .hex/lockfile.yaml but it is unreadable: ${
+          err instanceof Error ? err.message : String(err)
+        } — fix or remove it before adopting`,
+      )}\n`,
+    );
+    effects.setExitCode(1);
+    return;
+  }
+  if (existing) {
+    const label = `${existing.lockfile.root.name}@${existing.lockfile.root.version}`;
+    if (resolve(existing.rootDir) !== resolve(projectRoot)) {
+      effects.stderr.write(
+        `${brand.error(
+          `this directory is inside a hex app (lockfile in ${existing.rootDir}) — run hex adopt from the app root`,
+        )}\n`,
+      );
+      effects.setExitCode(1);
+      return;
+    }
+    if (opts.readopt) {
+      effects.stderr.write(`${brand.dim(`re-adopting over ${label} — the merge base resets`)}\n`);
+    } else if (supplied !== undefined) {
+      effects.stderr.write(
+        `${brand.error(
+          `already adopted (${label}) — pass --readopt to replace the existing adoption in answers mode`,
+        )}\n`,
+      );
+      effects.setExitCode(1);
+      return;
+    } else {
+      const yes = await prompter.confirm({
+        message: `Already adopted (${label}) — re-adopt and replace the existing adoption? The merge base resets.`,
+        default: false,
+      });
+      if (!yes) {
+        effects.stdout.write('re-adopt declined — nothing changed\n');
+        return;
+      }
     }
   }
 
@@ -253,7 +288,6 @@ export async function runAdoptCommand(
   }
 
   // Prompts — before any temp dir exists, so a cancel needs no cleanup.
-  const prompter = effects.prompterFactory(supplied === undefined);
   let answers: Answers;
   try {
     answers = await runPrompts(
@@ -335,10 +369,21 @@ export function registerAdopt(program: Command): void {
       'run JS hooks unsandboxed for local FileSource templates (dev workflow; ignored for git/marketplace sources)',
       false,
     )
+    .option(
+      '--readopt',
+      'replace an existing adoption without asking (required to re-adopt with --answers)',
+      false,
+    )
     .action(
       async (
         templateArg: string | undefined,
-        opts: { dryRun: boolean; json: boolean; answers?: string; trustLocal: boolean },
+        opts: {
+          dryRun: boolean;
+          json: boolean;
+          answers?: string;
+          trustLocal: boolean;
+          readopt: boolean;
+        },
       ) => {
         // `--json` stdout must stay parseable — no splash, no clack chrome.
         if (!opts.json) {
@@ -350,6 +395,7 @@ export function registerAdopt(program: Command): void {
           json: opts.json,
           answers: opts.answers,
           trustLocal: opts.trustLocal,
+          readopt: opts.readopt,
         });
       },
     );

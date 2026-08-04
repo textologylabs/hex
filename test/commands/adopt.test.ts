@@ -320,10 +320,8 @@ describe('runAdoptCommand', () => {
     expect(cap.stdout.join('')).toContain('Fit preview');
   });
 
-  it('refuses when the project is already a hex app — before any shadow work', async () => {
-    const template = await buildTemplateFixture();
-    const project = await buildMatchingProject();
-    await writeFileEnsure(
+  const writeExistingLockfile = (project: string): Promise<void> =>
+    writeFileEnsure(
       join(project, '.hex', 'lockfile.yaml'),
       [
         'schema_version: 1',
@@ -340,13 +338,94 @@ describe('runAdoptCommand', () => {
         '',
       ].join('\n'),
     );
-    const cap = captureEffects(template);
+
+  /** The scripted prompter plus a scripted re-adopt confirm. */
+  const readoptPrompter = (confirmAnswer: boolean): Prompter => ({
+    ...scriptedPrompter({ project_name: 'my-app' }),
+    async confirm(opts) {
+      if (!opts.message.includes('re-adopt'))
+        throw new Error(`unexpected confirm: ${opts.message}`);
+      return confirmAnswer;
+    },
+  });
+
+  it('asks before re-adopting; declining leaves everything unchanged (A5)', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildMatchingProject();
+    await writeExistingLockfile(project);
+    const before = await readFile(join(project, '.hex', 'lockfile.yaml'), 'utf8');
+    const cap = captureEffects(template, readoptPrompter(false));
 
     await runAdoptCommand(project, 'adoptable', cap.effects, {});
 
+    expect(cap.exitCodes).toEqual([]);
+    expect(cap.stdout.join('')).toContain('re-adopt declined — nothing changed');
+    expect(cap.shadowDirs).toEqual([]); // declined before any render
+    expect(await readFile(join(project, '.hex', 'lockfile.yaml'), 'utf8')).toBe(before);
+  });
+
+  it('re-adopts on confirm: the previous adoption is replaced wholesale (A5)', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildMatchingProject();
+    // First adoption records my-app.
+    const first = captureEffects(template);
+    await runAdoptCommand(project, 'adoptable', first.effects, {});
+    expect(first.exitCodes).toEqual([]);
+
+    // Re-adopt with DIFFERENT answers: confirm yes, then other-app.
+    const prompter: Prompter = {
+      ...scriptedPrompter({ project_name: 'other-app' }),
+      async confirm() {
+        return true;
+      },
+    };
+    const cap = captureEffects(template, prompter);
+    await runAdoptCommand(project, 'adoptable', cap.effects, {});
+
+    expect(cap.exitCodes).toEqual([]);
+    const lock = lockfileSchema.parse(
+      parseYaml(await readFile(join(project, '.hex', 'lockfile.yaml'), 'utf8')),
+    );
+    expect(lock.answers).toEqual({ project_name: 'other-app' });
+    // The project still holds my-app bytes, so the new baseline calls
+    // package.json edited — the merge base genuinely reset.
+    expect(cap.stdout.join('')).toContain('edited');
+  });
+
+  it('answers mode refuses re-adopt without --readopt, replaces with it (A5)', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildMatchingProject();
+    await writeExistingLockfile(project);
+    const answersFile = join(work, 'readopt-answers.yaml');
+    await writeFileEnsure(answersFile, 'project_name: my-app\n');
+
+    const refused = captureEffects(template);
+    await runAdoptCommand(project, 'adoptable', refused.effects, { answers: answersFile });
+    expect(refused.exitCodes).toEqual([1]);
+    expect(refused.stderr.join('')).toMatch(/--readopt/);
+    expect(refused.shadowDirs).toEqual([]);
+
+    const replaced = captureEffects(template);
+    await runAdoptCommand(project, 'adoptable', replaced.effects, {
+      answers: answersFile,
+      readopt: true,
+    });
+    expect(replaced.exitCodes).toEqual([]);
+    expect(replaced.stdout.join('')).toContain('Adopted');
+    expect(replaced.stderr.join('')).toContain('re-adopting over adoptable@0.3.0');
+  });
+
+  it('hard-refuses from a nested subdirectory of a hex app', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildMatchingProject();
+    await writeExistingLockfile(project);
+    const cap = captureEffects(template, readoptPrompter(true));
+
+    await runAdoptCommand(join(project, 'src'), 'adoptable', cap.effects, {});
+
     expect(cap.exitCodes).toEqual([1]);
-    expect(cap.stderr.join('')).toMatch(/already a hex app/);
-    expect(cap.shadowDirs).toEqual([]); // guard fired before any render
+    expect(cap.stderr.join('')).toMatch(/inside a hex app/);
+    expect(cap.shadowDirs).toEqual([]);
   });
 
   it('refuses (does not crash) on a malformed existing lockfile', async () => {
