@@ -9,6 +9,7 @@ import { brand } from '../brand/colors.js';
 import { sym } from '../brand/glyphs.js';
 import { splash } from '../brand/splash.js';
 import { buildHexignore, buildManifestYaml } from '../core/hexify/generate.js';
+import { type MinedPair, mineCandidatePairs } from '../core/hexify/mine.js';
 import {
   type HexifyPlan,
   type OccurrenceCount,
@@ -53,6 +54,13 @@ import { loadFromPath } from '../core/sources/file-source.js';
 export type HexifyCommandOptions = {
   dryRun?: boolean;
   json?: boolean;
+  /**
+   * Path to a known INSTANCE of this template (H2): the template↔instance
+   * diff is mined for candidate value pairs, proposed with evidence in
+   * the same confirm dialogue. Best taken at an early ref of the
+   * instance — later drift just produces junk proposals to decline.
+   */
+  against?: string;
 };
 
 export type HexifyCommandEffects = {
@@ -289,11 +297,29 @@ function describeCount(o: OccurrenceCount): string {
   return parts.join(', ');
 }
 
+/** How many mined pairs get proposed before the rest are summarised away. */
+const MAX_MINED_PROPOSALS = 8;
+
+/** Default prompt-name suggestion for a mined value: `acme-portal` → `acme_portal`. */
+function suggestPromptName(value: string, taken: Set<string>): string {
+  const base =
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .replace(/^([0-9])/, '_$1') || 'param';
+  let name = base;
+  let n = 2;
+  while (taken.has(name)) name = `${base}_${n++}`;
+  return name;
+}
+
 /** The guided parameterisation dialogue. Pure prompter-driven — no I/O. */
 async function collectParams(
   prompter: Prompter,
   files: ScannedFile[],
   seeds: PackageSeeds,
+  mined: MinedPair[] = [],
 ): Promise<HexifyParam[]> {
   const accepted: HexifyParam[] = [];
   const usedValues = new Set<string>();
@@ -319,6 +345,49 @@ async function collectParams(
       usedValues.add(value);
       usedNames.add(candidate.name);
     }
+  }
+
+  // Mined candidates (H2): evidence from the template↔instance diff,
+  // proposed after the package.json seeds so duplicates fall away, and
+  // capped — anything beyond the cap is drift-shaped long tail.
+  const proposedValues = new Set<string>();
+  let proposed = 0;
+  for (const pair of mined) {
+    if (proposed >= MAX_MINED_PROPOSALS) break;
+    const value = pair.templateValue;
+    if (usedValues.has(value) || proposedValues.has(value)) continue;
+    const count = countOccurrencesAcross(files, value);
+    if (count.total === 0) continue;
+    proposedValues.add(value);
+    proposed++;
+    const evidence = `↔ "${pair.instanceValue}" in the instance, ${pair.evidence} differing spot${
+      pair.evidence === 1 ? '' : 's'
+    }`;
+    const yes = await prompter.confirm({
+      message: `Parameterise "${value}"? (${evidence}; ${describeCount(count)} here)`,
+      default: true,
+    });
+    if (!yes) continue;
+    const name = await prompter.text({
+      message: `Prompt name for "${value}"`,
+      default: suggestPromptName(value, usedNames),
+      validate: (v) =>
+        !PROMPT_NAME_RE.test(v)
+          ? 'lower_snake_case identifiers only (^[a-z_][a-z0-9_]*$)'
+          : usedNames.has(v)
+            ? 'that prompt name is already taken'
+            : undefined,
+    });
+    accepted.push({ name, value, description: name.replace(/_/g, ' ') });
+    usedValues.add(value);
+    usedNames.add(name);
+  }
+  if (proposed >= MAX_MINED_PROPOSALS && mined.length > proposed) {
+    prompter.note?.(
+      `${mined.length - proposed} weaker mined pair${
+        mined.length - proposed === 1 ? '' : 's'
+      } not proposed — add any of them via the custom-parameter loop`,
+    );
   }
 
   while (
@@ -428,6 +497,23 @@ export async function runHexifyCommand(
     return;
   }
 
+  // Guard 4 — `--against` must point at an existing directory.
+  if (opts.against !== undefined) {
+    let isDir = false;
+    try {
+      isDir = (await stat(opts.against)).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) {
+      effects.stderr.write(
+        `${brand.error(`--against path is not a directory: ${opts.against}`)}\n`,
+      );
+      effects.setExitCode(1);
+      return;
+    }
+  }
+
   // Seeds + scan. The generated .hexignore's patterns gate the scan, so
   // node_modules-on-disk never enters the template.
   const seeds = await readPackageSeeds(repoRoot);
@@ -466,7 +552,21 @@ export async function runHexifyCommand(
     default: '',
   });
 
-  const params = await collectParams(prompter, files, seeds);
+  // H2 — mine candidate pairs from the template↔instance diff. The
+  // instance walk gets the same ignore patterns, so node_modules and
+  // friends never produce pairs.
+  let mined: MinedPair[] = [];
+  if (opts.against !== undefined) {
+    const instanceFiles = await scanRepo(opts.against, ignorePatterns);
+    mined = mineCandidatePairs(files, instanceFiles);
+    if (mined.length === 0) {
+      prompter.note?.(
+        'no candidate pairs mined from the instance — the trees are identical or differ only by drift',
+      );
+    }
+  }
+
+  const params = await collectParams(prompter, files, seeds, mined);
 
   if (params.length === 0) {
     const anyway = await prompter.confirm({
@@ -564,7 +664,11 @@ export function registerHexify(program: Command): void {
     )
     .option('--dry-run', 'run the full pipeline, round-trip gate included; write nothing', false)
     .option('--json', 'emit the hexify report as machine-readable JSON', false)
-    .action(async (opts: { dryRun: boolean; json: boolean }) => {
+    .option(
+      '--against <instance>',
+      'path to a known instance of this template — its diff is mined for parameter candidates (best at an early ref of the instance)',
+    )
+    .action(async (opts: { dryRun: boolean; json: boolean; against?: string }) => {
       // `--json` stdout must stay parseable — no splash, no clack chrome.
       if (!opts.json) {
         process.stdout.write(`${splash()}\n`);
@@ -573,6 +677,7 @@ export function registerHexify(program: Command): void {
       await runHexifyCommand(process.cwd(), defaultHexifyCommandEffects, {
         dryRun: opts.dryRun,
         json: opts.json,
+        against: opts.against,
       });
     });
 }
