@@ -49,7 +49,12 @@ async function startRegistry(tokens: TokenStore): Promise<Harness> {
     tokens,
   };
   const server = createRegistryServer(config);
-  await new Promise<void>((resolve) => server.listen(0, resolve));
+  // Bind the SAME address the tests fetch. A bare listen(0) binds `::`
+  // (IPv6 any), which does not conflict with an unrelated process
+  // holding the same port number on IPv4 loopback — fetches to
+  // 127.0.0.1 then reach the stranger, not us (seen as a flaky
+  // "Cannot GET /" from someone's connect-based dev server).
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     baseUrl: `http://127.0.0.1:${port}`,
