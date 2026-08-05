@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`hex hexify --emit-prompt` / `--plan` — AI-assisted deep parameterisation** ([869eee76z](https://app.clickup.com/t/869eee76z)). Seeding and mining find single values; an AI agent can find what they structurally can't — multi-word strings (company names in licence headers), casing variants, judgment calls (ports, org slugs, deploy-manifest names). The handoff keeps Hex itself AI-free: `--emit-prompt [file]` writes a self-contained agent briefing (default `hexify-prompt.md` — the rules, the seeds, **every** mined pair with its file paths, the inventory, the plan schema, and self-grading instructions built on `--dry-run --json` and adopt's fit-%) and stops, touching nothing else, needing no TTY and no clean tree. The agent answers with a small zod-validated `hexify.plan.yaml`; `--plan <file>` turns its params into *proposals* — a value that appears nowhere counts 0 occurrences and is surfaced (`planned.unmatched` in the report), never silently applied. `--plan --dry-run` runs fully headless (the agent's iteration loop); the write path stays interactive, every param confirmed by hand, round-trip proof unchanged — a wrong plan cannot corrupt the repo. The clean-tree preflight now tolerates exactly `hexify-prompt.md` and `hexify.plan.yaml` untracked (hexify's own working files, never touched by the rewrite). Hex never makes an AI or network call — the prompt and plan are files the user carries, so the tool stays deterministic and air-gap friendly while working with whatever assistant an organisation allows. 22 new tests, the headline being the integration arc: emit → simulated agent plan (the mined pair plus a multi-word value no diff could surface) → headless verify loop with both working files untracked on real git → interactive apply → the instance adopts with the deep params classified clean.
+
 ## [1.1.0] — 2026-08-04
 
 The brownfield reuse release: convert manually-maintained template repos

@@ -467,6 +467,16 @@ Also check `--against` (1.1): make a copy of the pre-hexify repo with the
 name swapped (a fake instance), then `hexify --against <copy>` — the dialogue
 must propose the swapped values with "↔ … in the instance" evidence.
 
+Also check the AI handoff (1.2): `hexify --against <copy> --emit-prompt`
+writes `hexify-prompt.md` (inspect it — rules, mined pairs, the verify-loop
+commands) and nothing else; hand-write a small `hexify.plan.yaml` (one real
+value, one bogus), then `hexify --plan hexify.plan.yaml --dry-run --json`
+must run with no prompts, report the bogus value under `planned.unmatched`,
+and leave the tree untouched; `hexify --plan hexify.plan.yaml` must propose
+each plan param at the TTY ("from plan; N occurrences") before the usual
+candidates. Both working files sitting untracked must NOT trip the
+clean-tree preflight.
+
 ---
 
 ## Release runbook

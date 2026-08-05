@@ -95,6 +95,41 @@ deployment manifests, ports, org slugs. Two tips:
 - Mining only ever *proposes*. Decline anything dubious — the round-trip
   proof is unaffected either way.
 
+### Deeper parameterisation with an AI agent
+
+Seeding and mining find single values. Real template repos also carry the
+kind a diff can't surface — multi-word company names in licence headers,
+casing variants, ports and org slugs that need judgment. For those, hand the
+problem to an AI agent — **without putting any AI in the pipeline**:
+
+```sh
+hex hexify --against ../zed-portal --emit-prompt   # writes hexify-prompt.md
+```
+
+`hexify-prompt.md` is a self-contained briefing: the rules, everything Hex
+already found, and instructions for the agent to check its own work. Give it
+to whatever assistant your organisation has approved (or none — it reads
+fine as a checklist for a human). The agent answers with a small
+`hexify.plan.yaml` and can iterate against Hex headlessly:
+
+```sh
+hex hexify --plan hexify.plan.yaml --dry-run --json   # agent's verify loop — writes nothing
+```
+
+When the plan looks right, apply it interactively — every proposed parameter
+is still confirmed by you, one by one, and the round-trip proof is unchanged:
+
+```sh
+hex hexify --plan hexify.plan.yaml
+```
+
+A wrong plan cannot corrupt anything: a value that appears nowhere counts 0
+occurrences and is flagged, and nothing is written unless the render proof
+passes. Hex never makes a network call and never invokes an AI itself — the
+prompt and the plan are files you carry, which keeps the tool deterministic
+and air-gap friendly while letting you use exactly as much AI as your
+environment allows.
+
 ### Finish the step
 
 Review with `git diff` (the changes are exactly what the report listed),
