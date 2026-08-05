@@ -592,8 +592,12 @@ describe('hexify --plan (H3)', () => {
   it('headless with --dry-run: auto-accepts matched params, reports unmatched, zero trace, no prompter', async () => {
     const repo = await buildRepoFixture();
     await writeFileEnsure(join(repo, 'conf', 'service.yaml'), 'service: acme-portal-svc\n');
-    const before = await hashTree(repo);
-    const plan = await writePlan(
+    // The plan sits IN the repo root — the loop's natural position. It
+    // must be excluded from the scan, or its own text would count as
+    // occurrences of every proposed value (the ghost would "match").
+    const plan = join(repo, 'hexify.plan.yaml');
+    await writeFile(
+      plan,
       [
         'template:',
         '  name: planned-name',
@@ -604,7 +608,9 @@ describe('hexify --plan (H3)', () => {
         '  - name: ghost',
         '    value: never-present-value',
       ].join('\n'),
+      'utf8',
     );
+    const before = await hashTree(repo);
     const cap = captureEffects(forbiddenPrompter(), {
       prompterFactory: () => {
         throw new Error('prompterFactory must not be called in headless plan mode');

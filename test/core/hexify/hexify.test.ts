@@ -189,6 +189,10 @@ describe('buildHexignore', () => {
     expect(out).toMatch(/^\.git\/$/m);
     expect(out).toMatch(/^node_modules\/$/m);
     expect(out).toMatch(/^\.DS_Store$/m);
+    // The H3 handoff working files: scanning them would count their own
+    // proposal values as template occurrences.
+    expect(out).toMatch(/^hexify-prompt\.md$/m);
+    expect(out).toMatch(/^hexify\.plan\.yaml$/m);
   });
 
   it('inherits .gitignore lines, deduping against the defaults', () => {

@@ -469,5 +469,8 @@ describe('hexify --emit-prompt / --plan: the H3 AI-handoff arc', () => {
     expect(fit.clean).toContain('conf/service.yaml');
     expect(fit.clean).toContain('NOTICE.md');
     expect(fit.edited).toEqual(['src/index.ts']);
+    // The handoff working files never entered the template — otherwise
+    // they would classify "missing" in every adopted instance.
+    expect(fit.missing).toEqual([]);
   });
 });
