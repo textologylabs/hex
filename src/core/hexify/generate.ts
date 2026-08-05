@@ -52,9 +52,19 @@ export function buildManifestYaml(seed: ManifestSeed): string {
  * Safety floor for the generated `.hexignore`. `walkTemplate` skips
  * `.hex/` and `.hexignore` on its own but NOT `.git/` — and a hexified
  * repo renders straight from a working tree that has one. node_modules
- * and .DS_Store are the on-disk-but-not-template usual suspects.
+ * and .DS_Store are the on-disk-but-not-template usual suspects. The
+ * two H3 handoff working files must be excluded too: they live at the
+ * repo root during the loop, and scanning them would count their own
+ * proposal values as template occurrences and bake them into the
+ * template (then classify "missing" in every adopt).
  */
-const HEXIGNORE_DEFAULTS = ['.git/', 'node_modules/', '.DS_Store'];
+const HEXIGNORE_DEFAULTS = [
+  '.git/',
+  'node_modules/',
+  '.DS_Store',
+  'hexify-prompt.md',
+  'hexify.plan.yaml',
+];
 
 /**
  * Seed `.hexignore` from the repo's `.gitignore`: what a team keeps out

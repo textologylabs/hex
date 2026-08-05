@@ -64,6 +64,7 @@ describe('mineCandidatePairs', () => {
       instanceValue: 'zed-portal',
       evidence: 2,
       files: 2,
+      filePaths: ['k8s/deploy.yaml', 'package.json'],
     });
   });
 
@@ -72,7 +73,13 @@ describe('mineCandidatePairs', () => {
     const instance = [file('a.txt', 'keep\nname: zed-portal\nteam added this line\nand this\n')];
     const mined = mineCandidatePairs(template, instance);
     expect(mined).toEqual([
-      { templateValue: 'acme-portal', instanceValue: 'zed-portal', evidence: 1, files: 1 },
+      {
+        templateValue: 'acme-portal',
+        instanceValue: 'zed-portal',
+        evidence: 1,
+        files: 1,
+        filePaths: ['a.txt'],
+      },
     ]);
   });
 
@@ -81,7 +88,13 @@ describe('mineCandidatePairs', () => {
     const instance = [file('src/zed-portal.config.ts', 'x\n')];
     const mined = mineCandidatePairs(template, instance);
     expect(mined).toEqual([
-      { templateValue: 'acme-portal', instanceValue: 'zed-portal', evidence: 1, files: 1 },
+      {
+        templateValue: 'acme-portal',
+        instanceValue: 'zed-portal',
+        evidence: 1,
+        files: 1,
+        filePaths: ['src/acme-portal.config.ts'],
+      },
     ]);
   });
 

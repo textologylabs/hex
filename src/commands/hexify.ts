@@ -1,13 +1,14 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import * as clack from '@clack/prompts';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
 import { sym } from '../brand/glyphs.js';
 import { splash } from '../brand/splash.js';
+import { buildAgentPrompt } from '../core/hexify/emit-prompt.js';
 import { buildHexignore, buildManifestYaml } from '../core/hexify/generate.js';
 import { type MinedPair, mineCandidatePairs } from '../core/hexify/mine.js';
 import {
@@ -22,12 +23,14 @@ import {
   verifyRoundTrip,
   writeShadowTemplate,
 } from '../core/hexify/pipeline.js';
-import type { HexifyParam } from '../core/hexify/substitute.js';
+import { type HexifyPlanFile, PlanFileError, loadPlanFile } from '../core/hexify/plan-file.js';
+import { type HexifyParam, MIN_VALUE_LENGTH, PROMPT_NAME_RE } from '../core/hexify/substitute.js';
 import { readLockfileUpward } from '../core/lockfile/index.js';
 import { ManifestError } from '../core/manifest/parse.js';
 import { createClackPrompter } from '../core/prompts/clack-prompter.js';
 import type { Prompter } from '../core/prompts/types.js';
 import { loadFromPath } from '../core/sources/file-source.js';
+import { writeFileAtomic } from '../core/util/atomic.js';
 
 /**
  * `hex hexify` (Hex 2.0 / H1). Converts a plain, manually-maintained
@@ -61,6 +64,19 @@ export type HexifyCommandOptions = {
    * instance — later drift just produces junk proposals to decline.
    */
   against?: string;
+  /**
+   * H3: write a self-contained AI-agent briefing to this path and stop.
+   * Zero writes beyond the prompt file itself; no TTY needed; the
+   * clean-tree guard is skipped. The agent answers with hexify.plan.yaml.
+   */
+  emitPrompt?: string;
+  /**
+   * H3: path to an agent-produced hexify.plan.yaml. Its params become
+   * PROPOSALS: with `--dry-run` the run is headless (the agent's verify
+   * loop — matched params auto-accepted, nothing written); without it the
+   * guided dialogue confirms each param before the round-trip gate.
+   */
+  plan?: string;
 };
 
 export type HexifyCommandEffects = {
@@ -91,6 +107,13 @@ export type HexifyCommandEffects = {
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Hexify's own working files (the H3 handoff loop): untracked copies at
+ * the repo root don't dirty the preflight — the rewrite never touches
+ * them, so "git is the undo" holds regardless.
+ */
+const TOLERATED_UNTRACKED = new Set(['hexify-prompt.md', 'hexify.plan.yaml']);
+
 async function defaultGitStatus(dir: string): Promise<{ isRepo: boolean; clean: boolean }> {
   try {
     await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir });
@@ -98,7 +121,11 @@ async function defaultGitStatus(dir: string): Promise<{ isRepo: boolean; clean: 
     return { isRepo: false, clean: false };
   }
   const { stdout } = await execFileAsync('git', ['status', '--porcelain'], { cwd: dir });
-  return { isRepo: true, clean: stdout.trim() === '' };
+  const blocking = stdout
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .filter((l) => !(l.startsWith('?? ') && TOLERATED_UNTRACKED.has(l.slice(3))));
+  return { isRepo: true, clean: blocking.length === 0 };
 }
 
 export const defaultHexifyCommandEffects: HexifyCommandEffects = {
@@ -126,16 +153,19 @@ export type HexifyReport = {
   hexignore: string[];
   roundTrip: RoundTripResult;
   dryRun: boolean;
+  /** Present on `--plan` runs: provenance + values that matched nothing. */
+  planned?: { source: string; accepted: number; unmatched: string[] };
 };
 
 /** Reshape a plan + gate result into the report. Pure — no I/O. */
 export function buildHexifyReport(
   plan: HexifyPlan,
   roundTrip: RoundTripResult,
-  opts: { dryRun: boolean },
+  opts: { dryRun: boolean; planned?: HexifyReport['planned'] },
 ): HexifyReport {
   const templateName = extractManifestName(plan.manifestYaml);
   return {
+    ...(opts.planned === undefined ? {} : { planned: opts.planned }),
     template: templateName,
     parameters: plan.params.map((p) => ({
       name: p.name,
@@ -201,6 +231,15 @@ export function formatHexifyText(report: HexifyReport): string {
         `  {{ ${p.name} }} ← "${p.value}" (${p.occurrences.total} occurrence${
           p.occurrences.total === 1 ? '' : 's'
         })`,
+      ),
+    );
+  }
+  if (report.planned !== undefined && report.planned.unmatched.length > 0) {
+    lines.push(
+      brand.dim(
+        `  plan values not found (dropped): ${report.planned.unmatched
+          .map((v) => `"${v}"`)
+          .join(', ')}`,
       ),
     );
   }
@@ -275,9 +314,6 @@ async function readPackageSeeds(repoRoot: string): Promise<PackageSeeds> {
   }
 }
 
-const PROMPT_NAME_RE = /^[a-z_][a-z0-9_]*$/;
-const MIN_VALUE_LENGTH = 3;
-
 /** The obvious parameterisation candidates, in proposal order. */
 function autoCandidates(seeds: PackageSeeds): HexifyParam[] {
   const c: HexifyParam[] = [];
@@ -320,14 +356,41 @@ async function collectParams(
   files: ScannedFile[],
   seeds: PackageSeeds,
   mined: MinedPair[] = [],
+  planned: HexifyParam[] = [],
 ): Promise<HexifyParam[]> {
   const accepted: HexifyParam[] = [];
   const usedValues = new Set<string>();
   const usedNames = new Set<string>();
 
+  // Plan proposals (H3) lead: the agent already chose names and
+  // descriptions, so a single confirm per param suffices. Zero-occurrence
+  // values are surfaced, never silently dropped.
+  for (const p of planned) {
+    if (usedValues.has(p.value)) continue;
+    const count = countOccurrencesAcross(files, p.value);
+    if (count.total === 0) {
+      prompter.note?.(`no occurrences of "${p.value}" — skipped (from plan)`);
+      continue;
+    }
+    const yes = await prompter.confirm({
+      message: `Parameterise "${p.value}" as {{ ${p.name} }}? (from plan; ${describeCount(count)})`,
+      default: true,
+    });
+    if (!yes) continue;
+    accepted.push(p);
+    usedValues.add(p.value);
+    usedNames.add(p.name);
+  }
+
   for (const candidate of autoCandidates(seeds)) {
     const value = candidate.value.trim();
     if (value.length < MIN_VALUE_LENGTH) continue;
+    if (usedNames.has(candidate.name)) {
+      prompter.note?.(
+        `prompt name ${candidate.name} already taken by the plan — skipping auto candidate "${value}"`,
+      );
+      continue;
+    }
     if (usedValues.has(value)) {
       prompter.note?.(
         `"${value}" already parameterised — skipping duplicate candidate {{ ${candidate.name} }}`,
@@ -435,6 +498,27 @@ export async function runHexifyCommand(
   effects: HexifyCommandEffects,
   opts: HexifyCommandOptions = {},
 ): Promise<void> {
+  // Flag sanity — contradictory combinations fail before any repo look.
+  if (opts.emitPrompt !== undefined) {
+    const clash =
+      opts.plan !== undefined
+        ? '--plan'
+        : opts.json
+          ? '--json'
+          : opts.dryRun
+            ? '--dry-run'
+            : undefined;
+    if (clash !== undefined) {
+      effects.stderr.write(
+        `${brand.error(
+          `--emit-prompt cannot be combined with ${clash} — it only writes the briefing file`,
+        )}\n`,
+      );
+      effects.setExitCode(1);
+      return;
+    }
+  }
+
   // Guard 1 — already a hex template? Cheapest check first. (A template
   // dir has a manifest but no lockfile, so the lockfile guard below
   // would miss it.)
@@ -475,26 +559,47 @@ export async function runHexifyCommand(
     return;
   }
 
+  // Plan preflight (H3) — before the git guard, because in headless
+  // (--dry-run) runs the plan replaces the dialogue entirely and its
+  // errors should fail fast.
+  let planFile: HexifyPlanFile | undefined;
+  if (opts.plan !== undefined) {
+    try {
+      planFile = await loadPlanFile(opts.plan);
+    } catch (err) {
+      if (err instanceof PlanFileError) {
+        effects.stderr.write(`${brand.error(err.message)}\n`);
+        effects.setExitCode(1);
+        return;
+      }
+      throw err;
+    }
+  }
+
   // Guard 3 — git preflight. Hexify rewrites files in place; git is the
   // review-and-undo story, so a repo and a clean tree are non-negotiable.
-  const git = await effects.gitStatus(repoRoot);
-  if (!git.isRepo) {
-    effects.stderr.write(
-      `${brand.error(
-        'not a git repository — hexify rewrites files in place and relies on git as the undo (git init && git add -A && git commit first)',
-      )}\n`,
-    );
-    effects.setExitCode(1);
-    return;
-  }
-  if (!git.clean) {
-    effects.stderr.write(
-      `${brand.error(
-        'working tree not clean — commit or stash first (git diff is the review, git checkout . the undo)',
-      )}\n`,
-    );
-    effects.setExitCode(1);
-    return;
+  // The emit path rewrites nothing and is exempt (its output file is
+  // tolerated untracked anyway).
+  if (opts.emitPrompt === undefined) {
+    const git = await effects.gitStatus(repoRoot);
+    if (!git.isRepo) {
+      effects.stderr.write(
+        `${brand.error(
+          'not a git repository — hexify rewrites files in place and relies on git as the undo (git init && git add -A && git commit first)',
+        )}\n`,
+      );
+      effects.setExitCode(1);
+      return;
+    }
+    if (!git.clean) {
+      effects.stderr.write(
+        `${brand.error(
+          'working tree not clean — commit or stash first (git diff is the review, git checkout . the undo)',
+        )}\n`,
+      );
+      effects.setExitCode(1);
+      return;
+    }
   }
 
   // Guard 4 — `--against` must point at an existing directory.
@@ -528,56 +633,108 @@ export async function runHexifyCommand(
     return;
   }
 
-  // Guided dialogue — before any temp dir exists, so a cancel needs no
-  // cleanup. PromptCancelledError propagates for the top-level 130.
-  const prompter = effects.prompterFactory(true);
-  prompter.note?.(
-    [
-      `Scanning ${files.length} files (ignore: ${ignorePatterns.join(', ')}).`,
-      'Each confirmed value becomes a template prompt whose default is the',
-      'current value; every occurrence — contents and filenames — becomes a',
-      '{{ placeholder }}. Nothing is written unless a render with the',
-      'original values reproduces this repo byte-for-byte.',
-    ].join('\n'),
-    'hex hexify',
-  );
-
-  const templateName = await prompter.text({
-    message: 'Template name',
-    default: seeds.name ?? basename(repoRoot),
-    validate: (v) => (v.trim().length === 0 ? 'a template needs a name' : undefined),
-  });
-  const kind = await prompter.text({
-    message: 'Component kind (e.g. webapp, lib — blank to omit)',
-    default: '',
-  });
-
   // H2 — mine candidate pairs from the template↔instance diff. The
   // instance walk gets the same ignore patterns, so node_modules and
-  // friends never produce pairs.
+  // friends never produce pairs. Hoisted above the dialogue: the emit
+  // path and headless plan runs need the pairs with no prompter at all.
   let mined: MinedPair[] = [];
   if (opts.against !== undefined) {
     const instanceFiles = await scanRepo(opts.against, ignorePatterns);
     mined = mineCandidatePairs(files, instanceFiles);
-    if (mined.length === 0) {
+  }
+
+  // Emit path (H3) — write the agent briefing and stop. No TTY, no
+  // shadow dir, nothing else touched.
+  if (opts.emitPrompt !== undefined) {
+    const emitPath = resolve(repoRoot, opts.emitPrompt);
+    const prompt = buildAgentPrompt({
+      templateRoot: resolve(repoRoot),
+      againstRoot: opts.against === undefined ? undefined : resolve(opts.against),
+      seeds,
+      files,
+      ignorePatterns,
+      mined,
+    });
+    await writeFileAtomic(emitPath, prompt);
+    effects.stdout.write(
+      `wrote ${opts.emitPrompt} — hand it to an AI agent; it should answer with hexify.plan.yaml (then: hex hexify --plan hexify.plan.yaml)\n`,
+    );
+    return;
+  }
+
+  const planParams = planFile?.params ?? [];
+  const planValues = new Set(planParams.map((p) => p.value));
+  const unmatched = planParams
+    .filter((p) => countOccurrencesAcross(files, p.value).total === 0)
+    .map((p) => p.value);
+
+  // Headless plan mode (H3): `--plan --dry-run` is the agent's verify
+  // loop — matched plan params auto-accepted, no prompter, and dry-run
+  // guarantees nothing is written. The write path is always interactive.
+  const headless = planFile !== undefined && (opts.dryRun ?? false);
+
+  let templateName: string;
+  let kind: string;
+  let params: HexifyParam[];
+  let prompter: Prompter | undefined;
+
+  if (headless) {
+    templateName = planFile?.template?.name ?? seeds.name ?? basename(repoRoot);
+    kind = planFile?.template?.kind ?? '';
+    params = planParams.filter((p) => !unmatched.includes(p.value));
+  } else {
+    // Guided dialogue — before any temp dir exists, so a cancel needs no
+    // cleanup. PromptCancelledError propagates for the top-level 130.
+    prompter = effects.prompterFactory(true);
+    prompter.note?.(
+      [
+        `Scanning ${files.length} files (ignore: ${ignorePatterns.join(', ')}).`,
+        'Each confirmed value becomes a template prompt whose default is the',
+        'current value; every occurrence — contents and filenames — becomes a',
+        '{{ placeholder }}. Nothing is written unless a render with the',
+        'original values reproduces this repo byte-for-byte.',
+      ].join('\n'),
+      'hex hexify',
+    );
+
+    templateName = await prompter.text({
+      message: 'Template name',
+      default: planFile?.template?.name ?? seeds.name ?? basename(repoRoot),
+      validate: (v) => (v.trim().length === 0 ? 'a template needs a name' : undefined),
+    });
+    kind = await prompter.text({
+      message: 'Component kind (e.g. webapp, lib — blank to omit)',
+      default: planFile?.template?.kind ?? '',
+    });
+
+    if (opts.against !== undefined && mined.length === 0) {
       prompter.note?.(
         'no candidate pairs mined from the instance — the trees are identical or differ only by drift',
       );
     }
-  }
 
-  const params = await collectParams(prompter, files, seeds, mined);
+    params = await collectParams(prompter, files, seeds, mined, planParams);
 
-  if (params.length === 0) {
-    const anyway = await prompter.confirm({
-      message: 'No parameters confirmed — hexify anyway (instances would be identical copies)?',
-      default: false,
-    });
-    if (!anyway) {
-      effects.stdout.write('nothing hexified — no parameters confirmed\n');
-      return;
+    if (params.length === 0) {
+      const anyway = await prompter.confirm({
+        message: 'No parameters confirmed — hexify anyway (instances would be identical copies)?',
+        default: false,
+      });
+      if (!anyway) {
+        effects.stdout.write('nothing hexified — no parameters confirmed\n');
+        return;
+      }
     }
   }
+
+  const planned: HexifyReport['planned'] =
+    planFile === undefined
+      ? undefined
+      : {
+          source: opts.plan ?? '',
+          accepted: params.filter((p) => planValues.has(p.value)).length,
+          unmatched,
+        };
 
   let manifestYaml: string;
   try {
@@ -593,7 +750,7 @@ export async function runHexifyCommand(
 
   const plan = buildPlan(files, params, manifestYaml, hexignore, ignorePatterns);
 
-  if (!opts.dryRun) {
+  if (!opts.dryRun && prompter !== undefined) {
     const proceed = await prompter.confirm({
       message: `Write the hexified template into ${repoRoot}?`,
       default: true,
@@ -621,7 +778,7 @@ export async function runHexifyCommand(
     if (!roundTrip.ok) {
       emitReport(
         effects,
-        buildHexifyReport(plan, roundTrip, { dryRun: opts.dryRun ?? false }),
+        buildHexifyReport(plan, roundTrip, { dryRun: opts.dryRun ?? false, planned }),
         opts,
       );
       effects.stderr.write(
@@ -632,7 +789,7 @@ export async function runHexifyCommand(
     }
 
     if (opts.dryRun) {
-      emitReport(effects, buildHexifyReport(plan, roundTrip, { dryRun: true }), opts);
+      emitReport(effects, buildHexifyReport(plan, roundTrip, { dryRun: true, planned }), opts);
       return;
     }
 
@@ -642,7 +799,7 @@ export async function runHexifyCommand(
     // consumer (`hex new`, `hex adopt`) will load it.
     await loadFromPath(repoRoot, 'file');
 
-    emitReport(effects, buildHexifyReport(plan, roundTrip, { dryRun: false }), opts);
+    emitReport(effects, buildHexifyReport(plan, roundTrip, { dryRun: false, planned }), opts);
   } finally {
     await rm(shadowDir, { recursive: true, force: true });
   }
@@ -668,16 +825,41 @@ export function registerHexify(program: Command): void {
       '--against <instance>',
       'path to a known instance of this template — its diff is mined for parameter candidates (best at an early ref of the instance)',
     )
-    .action(async (opts: { dryRun: boolean; json: boolean; against?: string }) => {
-      // `--json` stdout must stay parseable — no splash, no clack chrome.
-      if (!opts.json) {
-        process.stdout.write(`${splash()}\n`);
-        clack.intro(brand.honeyBold(' hex hexify '));
-      }
-      await runHexifyCommand(process.cwd(), defaultHexifyCommandEffects, {
-        dryRun: opts.dryRun,
-        json: opts.json,
-        against: opts.against,
-      });
-    });
+    .option(
+      '--emit-prompt [file]',
+      'write a self-contained AI-agent briefing (default hexify-prompt.md) and stop — the agent answers with hexify.plan.yaml',
+    )
+    .option(
+      '--plan <file>',
+      'agent-produced hexify.plan.yaml — its params become proposals; with --dry-run the run is headless (the agent verify loop)',
+    )
+    .action(
+      async (opts: {
+        dryRun: boolean;
+        json: boolean;
+        against?: string;
+        emitPrompt?: string | boolean;
+        plan?: string;
+      }) => {
+        const emitPrompt =
+          opts.emitPrompt === true
+            ? 'hexify-prompt.md'
+            : opts.emitPrompt === false
+              ? undefined
+              : opts.emitPrompt;
+        // `--json` stdout must stay parseable, and the emit path is a
+        // one-line file writer — no splash, no clack chrome, for both.
+        if (!opts.json && emitPrompt === undefined) {
+          process.stdout.write(`${splash()}\n`);
+          clack.intro(brand.honeyBold(' hex hexify '));
+        }
+        await runHexifyCommand(process.cwd(), defaultHexifyCommandEffects, {
+          dryRun: opts.dryRun,
+          json: opts.json,
+          against: opts.against,
+          emitPrompt,
+          plan: opts.plan,
+        });
+      },
+    );
 }

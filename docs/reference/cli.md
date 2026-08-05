@@ -405,6 +405,8 @@ hex hexify [flags]      # runs on the current directory
 | `--dry-run` | `false` | Run the whole pipeline — round-trip proof included — and write **nothing**. |
 | `--json` | `false` | Emit the hexify report as machine-readable JSON. |
 | `--against <instance>` | — | Path to a known **instance** of this template: the template↔instance diff is mined for candidate value pairs, proposed with evidence in the same confirm dialogue. |
+| `--emit-prompt [file]` | — | Write a self-contained **AI-agent briefing** (default `hexify-prompt.md`) and stop — nothing else is touched, no TTY needed. |
+| `--plan <file>` | — | Load an agent-produced `hexify.plan.yaml`; its params become proposals. With `--dry-run` the run is fully headless (the agent's verify loop). |
 
 **`--against` (instance-informed mining)** — pointing hexify at a project that
 was hand-copied from this template turns parameterisation discovery from
@@ -417,17 +419,44 @@ instance, 7 differing spots") and a suggested prompt name; they only ever
 results come from an instance at an **early** revision (check one out first);
 later drift just produces junk proposals to decline.
 
+**`--emit-prompt` / `--plan` (AI-assisted parameterisation)** — the guided
+dialogue and mining find single values; an AI agent can find what they
+structurally can't (multi-word strings, casing variants, judgment calls like
+ports and org slugs). Hex itself never talks to an AI — the handoff is two
+files you carry:
+
+```
+hex hexify --against ../zed-portal --emit-prompt   # writes hexify-prompt.md
+# hand hexify-prompt.md to any agent → it answers with hexify.plan.yaml
+hex hexify --plan hexify.plan.yaml --dry-run --json  # the agent's verify loop
+hex hexify --plan hexify.plan.yaml                   # interactive apply
+```
+
+The briefing carries the rules, the evidence (seeds, every mined pair with
+its files, the inventory), the plan schema, and instructions for the agent to
+grade itself against `hex adopt`'s fit-%. On the `--plan` side, each param is
+a *proposal*: a value that appears nowhere counts 0 occurrences and is
+surfaced (`planned.unmatched` in the JSON report), the write path confirms
+every param by hand, and the round-trip proof is unchanged — a wrong plan
+cannot corrupt the repo. `--plan --dry-run` runs with no prompts at all so an
+agent can iterate; the actual write is always interactive.
+
 **The contract** — nothing is written unless the **round-trip proof** passes:
 the hexified template is built in a throwaway shadow directory and rendered
 back with the original values as answers; every file must come back
 byte-identical to your repo before a single in-place byte moves. On top of
 that, the preflight requires a **clean git tree** — review the result with
 `git diff`, undo the rewrites with `git checkout .`, and remove the newly
-generated files with `git clean -fd -- .hex .hexignore`.
+generated files with `git clean -fd -- .hex .hexignore`. Two untracked
+files are tolerated by the clean-tree check: `hexify-prompt.md` and
+`hexify.plan.yaml` — hexify's own working files, never touched by the
+rewrite. (`--emit-prompt` skips the git preflight entirely: it rewrites
+nothing.)
 
 **Preflight refusals (exit 1)** — already a hex template (`.hex/manifest.yaml`
 exists); a hex *app* (lockfile found, here or in a parent); not a git repo;
-dirty working tree.
+dirty working tree; an unreadable or invalid `--plan` file; `--emit-prompt`
+combined with `--plan`, `--json`, or `--dry-run`.
 
 **After hexify** — commit, then: `hex new <repo>` scaffolds fresh instances;
 existing hand-copied instances can be [`hex adopt`](#hex-adopt)ed — the fit
