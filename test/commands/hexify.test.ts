@@ -503,3 +503,199 @@ describe('runHexifyCommand', () => {
     );
   });
 });
+
+/** A prompter whose every method throws — proves a path needs no TTY. */
+function forbiddenPrompter(): Prompter {
+  const die = (): never => {
+    throw new Error('prompter must not be used on this path');
+  };
+  return {
+    text: async () => die(),
+    confirm: async () => die(),
+    select: async () => die(),
+    multiselect: async () => die(),
+    password: async () => die(),
+  };
+}
+
+describe('hexify --emit-prompt (H3)', () => {
+  it('writes the briefing, touches nothing else, and never creates a prompter or shadow', async () => {
+    const repo = await buildRepoFixture();
+    const before = await hashTree(repo);
+    const cap = captureEffects(forbiddenPrompter(), {
+      prompterFactory: () => {
+        throw new Error('prompterFactory must not be called on the emit path');
+      },
+    });
+
+    await runHexifyCommand(repo, cap.effects, { emitPrompt: 'hexify-prompt.md' });
+
+    expect(cap.exitCodes).toEqual([]);
+    expect(cap.shadowDirs).toEqual([]);
+    expect(cap.stdout.join('')).toContain('wrote hexify-prompt.md');
+    const prompt = await readFile(join(repo, 'hexify-prompt.md'), 'utf8');
+    expect(prompt).toContain(repo);
+    expect(prompt).toContain('^[a-z_][a-z0-9_]*$');
+    expect(prompt).toContain('hex hexify --plan hexify.plan.yaml --dry-run --json');
+    // Only the prompt file itself appeared.
+    await rm(join(repo, 'hexify-prompt.md'));
+    expect(await hashTree(repo)).toEqual(before);
+  });
+
+  it('honours an explicit path and includes mined evidence with --against', async () => {
+    const repo = await buildRepoFixture();
+    await writeFileEnsure(join(repo, 'conf', 'service.yaml'), 'service: acme-portal-svc\n');
+    const instance = join(work, 'instance');
+    await writeFileEnsure(join(instance, 'conf', 'service.yaml'), 'service: zed-portal-svc\n');
+    const out = join(work, 'briefing.md');
+    const cap = captureEffects(forbiddenPrompter());
+
+    await runHexifyCommand(repo, cap.effects, { emitPrompt: out, against: instance });
+
+    expect(cap.exitCodes).toEqual([]);
+    const prompt = await readFile(out, 'utf8');
+    expect(prompt).toContain('`acme-portal-svc` ↔ `zed-portal-svc`');
+    expect(prompt).toContain('conf/service.yaml');
+    expect(prompt).toContain(instance);
+    expect(prompt).toContain('hex adopt');
+  });
+
+  it('does not require a clean tree — nothing in the repo is rewritten', async () => {
+    const repo = await buildRepoFixture();
+    const cap = captureEffects(forbiddenPrompter(), {
+      gitStatus: async () => ({ isRepo: true, clean: false }),
+    });
+    await runHexifyCommand(repo, cap.effects, { emitPrompt: 'hexify-prompt.md' });
+    expect(cap.exitCodes).toEqual([]);
+    expect(existsSync(join(repo, 'hexify-prompt.md'))).toBe(true);
+  });
+
+  it('refuses contradictory flag combinations before touching anything', async () => {
+    const repo = await buildRepoFixture();
+    for (const extra of [{ plan: 'x.yaml' }, { json: true }, { dryRun: true }]) {
+      const cap = captureEffects(forbiddenPrompter());
+      await runHexifyCommand(repo, cap.effects, { emitPrompt: 'p.md', ...extra });
+      expect(cap.exitCodes).toEqual([1]);
+      expect(cap.stderr.join('')).toContain('--emit-prompt cannot be combined');
+    }
+    expect(existsSync(join(repo, 'p.md'))).toBe(false);
+  });
+});
+
+describe('hexify --plan (H3)', () => {
+  async function writePlan(yaml: string): Promise<string> {
+    const path = join(work, 'hexify.plan.yaml');
+    await writeFile(path, yaml, 'utf8');
+    return path;
+  }
+
+  it('headless with --dry-run: auto-accepts matched params, reports unmatched, zero trace, no prompter', async () => {
+    const repo = await buildRepoFixture();
+    await writeFileEnsure(join(repo, 'conf', 'service.yaml'), 'service: acme-portal-svc\n');
+    const before = await hashTree(repo);
+    const plan = await writePlan(
+      [
+        'template:',
+        '  name: planned-name',
+        'params:',
+        '  - name: svc_name',
+        '    value: acme-portal-svc',
+        '    description: Service name',
+        '  - name: ghost',
+        '    value: never-present-value',
+      ].join('\n'),
+    );
+    const cap = captureEffects(forbiddenPrompter(), {
+      prompterFactory: () => {
+        throw new Error('prompterFactory must not be called in headless plan mode');
+      },
+    });
+
+    await runHexifyCommand(repo, cap.effects, { plan, dryRun: true, json: true });
+
+    expect(cap.exitCodes).toEqual([]);
+    const report = JSON.parse(cap.stdout.join('')) as HexifyReport;
+    expect(report.dryRun).toBe(true);
+    expect(report.template.name).toBe('planned-name');
+    expect(report.parameters.map((p) => p.name)).toEqual(['svc_name']);
+    expect(report.planned).toEqual({
+      source: plan,
+      accepted: 1,
+      unmatched: ['never-present-value'],
+    });
+    expect(report.roundTrip.ok).toBe(true);
+    expect(await hashTree(repo)).toEqual(before);
+  });
+
+  it('interactive: plan params are confirmed first, a declined one stays out, template name defaults from the plan', async () => {
+    const repo = await buildRepoFixture();
+    await writeFileEnsure(join(repo, 'conf', 'service.yaml'), 'service: acme-portal-svc\n');
+    const plan = await writePlan(
+      [
+        'template:',
+        '  name: planned-name',
+        'params:',
+        '  - name: svc_name',
+        '    value: acme-portal-svc',
+        '  - name: portal_desc',
+        '    value: The Acme portal',
+      ].join('\n'),
+    );
+    const { prompter, notes } = scriptedPrompter({
+      confirms: [{ match: '"The Acme portal" as {{ portal_desc }}', answer: false }],
+    });
+    const cap = captureEffects(prompter);
+
+    await runHexifyCommand(repo, cap.effects, { plan });
+
+    expect(cap.exitCodes).toEqual([]);
+    const manifest = await parseManifestFile(join(repo, '.hex', 'manifest.yaml'));
+    expect(manifest.name).toBe('planned-name');
+    const promptNames = manifest.prompts?.map((p) => p.name) ?? [];
+    expect(promptNames).toContain('svc_name');
+    expect(promptNames).not.toContain('portal_desc');
+    // The declined plan value fell through to the auto-candidate stage
+    // (description seed) untouched; the accepted one substituted.
+    expect(await readFile(join(repo, 'conf', 'service.yaml'), 'utf8')).toBe(
+      'service: {{ svc_name }}\n',
+    );
+    expect(notes.join('\n')).not.toContain('never-present-value');
+  });
+
+  it('surfaces zero-occurrence plan values as notes in interactive mode', async () => {
+    const repo = await buildRepoFixture();
+    const plan = await writePlan('params:\n  - name: ghost\n    value: never-present-value\n');
+    const { prompter, notes } = scriptedPrompter();
+    const cap = captureEffects(prompter);
+
+    await runHexifyCommand(repo, cap.effects, { plan });
+
+    expect(cap.exitCodes).toEqual([]);
+    expect(notes.join('\n')).toContain(
+      'no occurrences of "never-present-value" — skipped (from plan)',
+    );
+  });
+
+  it('rejects an invalid plan with exit 1 naming the file, before any prompt or write', async () => {
+    const repo = await buildRepoFixture();
+    const before = await hashTree(repo);
+    const plan = await writePlan('params:\n  - name: Bad-Name\n    value: acme-portal\n');
+    const cap = captureEffects(forbiddenPrompter());
+
+    await runHexifyCommand(repo, cap.effects, { plan, dryRun: true });
+
+    expect(cap.exitCodes).toEqual([1]);
+    expect(cap.stderr.join('')).toContain('hexify.plan.yaml');
+    expect(cap.stderr.join('')).toContain('lower_snake_case');
+    expect(cap.shadowDirs).toEqual([]);
+    expect(await hashTree(repo)).toEqual(before);
+  });
+
+  it('rejects a missing plan file', async () => {
+    const repo = await buildRepoFixture();
+    const cap = captureEffects(forbiddenPrompter());
+    await runHexifyCommand(repo, cap.effects, { plan: join(work, 'nope.yaml'), dryRun: true });
+    expect(cap.exitCodes).toEqual([1]);
+    expect(cap.stderr.join('')).toContain('cannot read plan file');
+  });
+});
