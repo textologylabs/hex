@@ -12,6 +12,7 @@ import {
 } from '../../src/commands/adopt.js';
 import {
   type HexifyCommandEffects,
+  type HexifyReport,
   defaultHexifyCommandEffects,
   runHexifyCommand,
 } from '../../src/commands/hexify.js';
@@ -343,3 +344,130 @@ function adoptEffects(templateRoot: string): {
     },
   };
 }
+
+describe('hexify --emit-prompt / --plan: the H3 AI-handoff arc', () => {
+  it('emit → (simulated agent) plan → headless verify loop → interactive apply → adopt clean', async () => {
+    const repo = await buildWorkplaceRepo();
+    // A mined-discoverable value AND one no diff can ever surface: the
+    // instance never changed the company line, so only judgment (the
+    // agent) proposes it.
+    await writeFileEnsure(
+      join(repo, 'conf', 'service.yaml'),
+      'service: acme-portal-svc\nowner: platform-team\n',
+    );
+    await writeFileEnsure(join(repo, 'NOTICE.md'), 'Copyright Acme Portal Ltd\n');
+    await git(repo, 'add', '-A');
+    await git(repo, 'commit', '-q', '-m', 'service config + notice');
+
+    const instance = join(work, 'zed-instance');
+    await writeFileEnsure(
+      join(instance, 'package.json'),
+      '{\n  "name": "zed-portal",\n  "description": "The Acme portal",\n  "license": "MIT"\n}\n',
+    );
+    await writeFileEnsure(
+      join(instance, 'src', 'zed-portal.config.ts'),
+      'export const appName = "zed-portal";\n',
+    );
+    await writeFileEnsure(
+      join(instance, 'src', 'index.ts'),
+      'export const boot = () => "patched";\n',
+    );
+    await writeFileEnsure(
+      join(instance, '.github', 'workflows', 'ci.yml'),
+      'env:\n  TOKEN: ${{ secrets.NPM_TOKEN }}\n',
+    );
+    await writeFileEnsure(join(instance, 'logo.png'), PNG_BYTES);
+    await writeFileEnsure(join(instance, '.gitignore'), 'node_modules/\ndist/\n');
+    await writeFileEnsure(
+      join(instance, 'conf', 'service.yaml'),
+      'service: zed-portal-svc\nowner: platform-team\n',
+    );
+    await writeFileEnsure(join(instance, 'NOTICE.md'), 'Copyright Acme Portal Ltd\n');
+
+    // ---- 1. emit the briefing (real git; no clean-tree requirement) ----
+    const emit = hexifyEffects();
+    await runHexifyCommand(repo, emit.effects, {
+      against: instance,
+      emitPrompt: 'hexify-prompt.md',
+    });
+    expect(emit.stderr).toEqual([]);
+    expect(emit.exitCodes).toEqual([]);
+    const briefing = await readFile(join(repo, 'hexify-prompt.md'), 'utf8');
+    expect(briefing).toContain(instance);
+    expect(briefing).toContain('`acme-portal-svc` ↔ `zed-portal-svc`');
+    expect(briefing).toContain('hexify.plan.yaml');
+
+    // ---- 2. the "agent" answers with a plan: the mined value plus the
+    // multi-word company name no diff could have surfaced ----
+    await writeFile(
+      join(repo, 'hexify.plan.yaml'),
+      [
+        'params:',
+        '  - name: svc_name',
+        '    value: acme-portal-svc',
+        '    description: Deployed service name',
+        '  - name: company',
+        '    value: Acme Portal Ltd',
+        '    description: Legal entity in the notice',
+      ].join('\n'),
+      'utf8',
+    );
+
+    // ---- 3. the agent's headless verify loop — with BOTH working files
+    // sitting untracked in the repo, the real porcelain must tolerate them ----
+    const loop = hexifyEffects();
+    await runHexifyCommand(repo, loop.effects, {
+      plan: join(repo, 'hexify.plan.yaml'),
+      dryRun: true,
+      json: true,
+    });
+    expect(loop.stderr).toEqual([]);
+    expect(loop.exitCodes).toEqual([]);
+    const preview = JSON.parse(loop.stdout.join('')) as HexifyReport;
+    expect(preview.roundTrip.ok).toBe(true);
+    expect(preview.parameters.map((p) => p.name).sort()).toEqual(['company', 'svc_name']);
+    expect(preview.planned?.unmatched).toEqual([]);
+    expect(existsSync(join(repo, '.hex'))).toBe(false);
+
+    // ---- 4. interactive apply: plan proposals first, then the usual
+    // auto candidates — the defaults prompter accepts them all ----
+    const apply = hexifyEffects();
+    await runHexifyCommand(repo, apply.effects, { plan: join(repo, 'hexify.plan.yaml') });
+    expect(apply.stderr).toEqual([]);
+    expect(apply.exitCodes).toEqual([]);
+
+    const bundle = await loadFromPath(repo);
+    const promptNames = (bundle.manifest.prompts ?? []).map((p) => p.name);
+    expect(promptNames).toEqual(
+      expect.arrayContaining(['svc_name', 'company', 'project_name', 'description', 'license']),
+    );
+    expect(await readFile(join(repo, 'NOTICE.md'), 'utf8')).toBe('Copyright {{ company }}\n');
+    expect(await readFile(join(repo, 'conf', 'service.yaml'), 'utf8')).toBe(
+      'service: {{ svc_name }}\nowner: platform-team\n',
+    );
+
+    // ---- 5. the payoff: the instance adopts with the deep params clean ----
+    const answersFile = join(work, 'answers.yaml');
+    await writeFile(
+      answersFile,
+      [
+        'project_name: zed-portal',
+        'svc_name: zed-portal-svc',
+        'company: Acme Portal Ltd',
+        'description: The Acme portal',
+        'license: MIT',
+      ].join('\n'),
+      'utf8',
+    );
+    const adopt = adoptEffects(repo);
+    await runAdoptCommand(instance, 'acme-portal', adopt.effects, {
+      json: true,
+      answers: answersFile,
+    });
+    expect(adopt.exitCodes).toEqual([]);
+    const fit = JSON.parse(adopt.stdout.join('')) as AdoptFitReport;
+    expect(fit.clean).toContain('conf/service.yaml');
+    expect(fit.clean).toContain('NOTICE.md');
+    expect(fit.edited).toEqual(['src/index.ts']);
+  });
+});
