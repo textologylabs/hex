@@ -20,6 +20,12 @@ export type HexifyParam = {
   description: string;
 };
 
+/** Valid prompt-name shape for a generated parameter. */
+export const PROMPT_NAME_RE = /^[a-z_][a-z0-9_]*$/;
+
+/** Shorter values over-match; every proposal source enforces this floor. */
+export const MIN_VALUE_LENGTH = 3;
+
 /**
  * Values made only of word-ish characters get boundary protection:
  * `acme-portal` must not match inside `acme-portal-web` or `xacme-portal`.
