@@ -11,6 +11,7 @@ import {
   formatAdoptText,
   runAdoptCommand,
 } from '../../src/commands/adopt.js';
+import { ProvenanceError } from '../../src/core/adopt/provenance.js';
 import {
   type Lockfile,
   type LockfileIntegrity,
@@ -120,6 +121,9 @@ function captureEffects(
         const dir = await mkdtemp(join(tmpdir(), 'hex-adopt-test-'));
         shadowDirs.push(dir);
         return dir;
+      },
+      materialiseProvenance: async () => {
+        throw new Error('materialiseProvenance should not be called without --provenance');
       },
     },
   };
@@ -573,5 +577,114 @@ hooks:
     expect(bad.shadowDirs).toHaveLength(1);
     expect(existsSync(bad.shadowDirs[0] as string)).toBe(false);
     expect(existsSync(join(fresh, '.hex'))).toBe(false);
+  });
+});
+
+describe('adopt --provenance (A7)', () => {
+  it('buildAdoptReport attaches the provenance split; edited stays the union', () => {
+    const lf = fakeLockfile(['a.ts', 'b.ts', 'c.ts']);
+    const integrity: LockfileIntegrity = {
+      ok: false,
+      modified: ['a.ts', 'b.ts'],
+      missing: [],
+      added: [],
+    };
+    const provenance = {
+      ref: 'root commit',
+      sha: 'c0ffee00'.repeat(5),
+      editedByYou: ['a.ts'],
+      stale: ['b.ts'],
+      collided: [],
+    };
+    const report = buildAdoptReport(lf, integrity, { dryRun: true }, provenance);
+    expect(report.provenance).toEqual(provenance);
+    expect(report.edited).toEqual(['a.ts', 'b.ts']);
+    // Without the 4th arg the field is absent entirely (JSON stability).
+    expect('provenance' in buildAdoptReport(lf, integrity, { dryRun: true })).toBe(false);
+  });
+
+  it('formatAdoptText splits the edited group three ways and names the baseline', () => {
+    const lf = fakeLockfile(['a.ts', 'b.ts', 'c.ts']);
+    const integrity: LockfileIntegrity = {
+      ok: false,
+      modified: ['a.ts', 'b.ts', 'c.ts'],
+      missing: [],
+      added: [],
+    };
+    const text = formatAdoptText(
+      buildAdoptReport(
+        lf,
+        integrity,
+        { dryRun: true },
+        {
+          ref: 'root commit',
+          sha: 'deadbeef'.repeat(5),
+          editedByYou: ['a.ts'],
+          stale: ['b.ts'],
+          collided: ['c.ts'],
+        },
+      ),
+    );
+    expect(text).toContain('edited by you (preserved by hex upgrade) (1):');
+    expect(text).toContain('stale (template moved on; upgrade refreshes these) (1):');
+    expect(text).toContain('collided (both changed; will conflict on upgrade) (1):');
+    expect(text).toContain('provenance baseline: root commit @ deadbeef');
+    expect(text).not.toContain('edited (yours; preserved by hex upgrade)');
+  });
+
+  it('runAdoptCommand enriches the JSON report via the materialise seam', async () => {
+    const template = await buildTemplateFixture('adoptable');
+    const project = join(work, 'prov-project');
+    // package.json: edited at HEAD, ref matches the template render → yours.
+    await writeFileEnsure(join(project, 'package.json'), '{"name": "my-app", "extra": true}\n');
+    // src/index.ts: edited at HEAD, ref matches HEAD → stale (template moved on).
+    await writeFileEnsure(join(project, 'src', 'index.ts'), 'export const x = 2;\n');
+
+    const cap = captureEffects(template);
+    cap.effects.materialiseProvenance = async (_root, ref, destDir) => {
+      await writeFileEnsure(join(destDir, 'tree', 'package.json'), '{"name": "my-app"}\n');
+      await writeFileEnsure(join(destDir, 'tree', 'src', 'index.ts'), 'export const x = 2;\n');
+      return { ref: ref ?? 'root commit', sha: 'ab'.repeat(20) };
+    };
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, {
+      dryRun: true,
+      json: true,
+      provenance: true,
+    });
+
+    expect(cap.exitCodes).toEqual([]);
+    const report = JSON.parse(cap.stdout.join('')) as AdoptFitReport;
+    expect(report.edited).toEqual(['package.json', 'src/index.ts']);
+    expect(report.provenance).toEqual({
+      ref: 'root commit',
+      sha: 'ab'.repeat(20),
+      editedByYou: ['package.json'],
+      stale: ['src/index.ts'],
+      collided: [],
+    });
+    // Report-only: dry-run + provenance still writes nothing.
+    expect(existsSync(join(project, '.hex'))).toBe(false);
+  });
+
+  it('warns and continues without the split when materialisation fails', async () => {
+    const template = await buildTemplateFixture('adoptable');
+    const project = await buildMatchingProject('prov-fail');
+    const cap = captureEffects(template);
+    cap.effects.materialiseProvenance = async () => {
+      throw new ProvenanceError('not a git repository');
+    };
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, {
+      dryRun: true,
+      json: true,
+      provenance: 'v1.0',
+    });
+
+    expect(cap.exitCodes).toEqual([]);
+    expect(cap.stderr.join('')).toContain('continuing without the split');
+    const report = JSON.parse(cap.stdout.join('')) as AdoptFitReport;
+    expect(report.provenance).toBeUndefined();
+    expect(report.fitPercent).toBe(100);
   });
 });

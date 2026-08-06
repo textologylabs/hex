@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type AdoptCommandEffects,
   type AdoptFitReport,
+  defaultAdoptCommandEffects,
   runAdoptCommand,
 } from '../../src/commands/adopt.js';
 import { buildDoctorReport } from '../../src/commands/doctor.js';
@@ -58,6 +59,8 @@ function makeEffects(templateRoot: string): {
       prompterFactory: () => createNonInteractivePrompter(),
       resolveTemplate: async () => loadFromPath(templateRoot, 'file'),
       makeShadowDir: () => mkdtemp(join(tmpdir(), 'hex-adopt-int-shadow-')),
+      // The REAL git-backed provenance — this pack runs on real repos.
+      materialiseProvenance: defaultAdoptCommandEffects.materialiseProvenance,
     },
   };
 }

@@ -7,10 +7,18 @@ import { brand } from '../brand/colors.js';
 import { sym } from '../brand/glyphs.js';
 import { splash } from '../brand/splash.js';
 import {
+  ProvenanceError,
+  materialiseRef,
+  resolveProvenanceRef,
+  splitEdited,
+} from '../core/adopt/provenance.js';
+import {
+  type LockFileEntry,
   type Lockfile,
   type LockfileIntegrity,
   buildLockfile,
   checkLockfileIntegrity,
+  hashTree,
   readLockfileUpward,
   writeLockfile,
 } from '../core/lockfile/index.js';
@@ -54,6 +62,14 @@ export type AdoptCommandOptions = {
    * re-adopt.
    */
   readopt?: boolean;
+  /**
+   * A7: enrich the fit report by materialising the instance's own git
+   * tree at this ref (bare flag = the root commit) and splitting
+   * "edited" into edited-by-you / stale / collided. ADVISORY and
+   * report-only — never changes what adopt writes; failures warn and
+   * continue without the split.
+   */
+  provenance?: string | true;
 };
 
 export type AdoptCommandEffects = {
@@ -72,6 +88,17 @@ export type AdoptCommandEffects = {
    * cleanup guarantee is assertable in tests.
    */
   makeShadowDir: () => Promise<string>;
+  /**
+   * A7 seam: resolve `ref` (undefined = root commit) in the project's
+   * git history and materialise its tree into `<destDir>/tree`. The
+   * default shells out to git; tests inject fakes. Throws
+   * {@link ProvenanceError} on any git failure.
+   */
+  materialiseProvenance: (
+    projectRoot: string,
+    ref: string | undefined,
+    destDir: string,
+  ) => Promise<{ ref: string; sha: string }>;
 };
 
 export const defaultAdoptCommandEffects: AdoptCommandEffects = {
@@ -84,6 +111,11 @@ export const defaultAdoptCommandEffects: AdoptCommandEffects = {
     interactive ? createClackPrompter() : createNonInteractivePrompter(),
   resolveTemplate,
   makeShadowDir: () => mkdtemp(join(tmpdir(), 'hex-adopt-')),
+  materialiseProvenance: async (projectRoot, ref, destDir) => {
+    const resolved = await resolveProvenanceRef(projectRoot, ref);
+    await materialiseRef(projectRoot, resolved.sha, destDir);
+    return resolved;
+  },
 };
 
 /** How many paths a fit-report group lists before truncating. */
@@ -104,6 +136,18 @@ export type AdoptFitReport = {
   /** round(100 * clean / recorded). */
   fitPercent: number;
   dryRun: boolean;
+  /**
+   * A7 enrichment (only on `--provenance` runs): `edited` split by the
+   * instance's early-ref tree. The three lists partition `edited`;
+   * fitPercent is unaffected.
+   */
+  provenance?: {
+    ref: string;
+    sha: string;
+    editedByYou: string[];
+    stale: string[];
+    collided: string[];
+  };
 };
 
 /**
@@ -114,6 +158,7 @@ export function buildAdoptReport(
   lockfile: Lockfile,
   integrity: LockfileIntegrity,
   opts: { dryRun: boolean },
+  provenance?: AdoptFitReport['provenance'],
 ): AdoptFitReport {
   const notClean = new Set([...integrity.modified, ...integrity.missing]);
   const clean = lockfile.files.map((f) => f.path).filter((p) => !notClean.has(p));
@@ -132,6 +177,7 @@ export function buildAdoptReport(
     untracked: [...integrity.added].sort(),
     fitPercent: recorded === 0 ? 0 : Math.round((100 * clean.length) / recorded),
     dryRun: opts.dryRun,
+    ...(provenance === undefined ? {} : { provenance }),
   };
 }
 
@@ -156,7 +202,15 @@ export function formatAdoptText(report: AdoptFitReport): string {
       `${sym.ok()} Adopted ${brand.bold(`${template.name}@${template.version}`)} — ${fit}`,
     );
   }
-  lines.push(...listGroup('edited (yours; preserved by hex upgrade)', report.edited));
+  if (report.provenance !== undefined) {
+    const p = report.provenance;
+    lines.push(...listGroup('edited by you (preserved by hex upgrade)', p.editedByYou));
+    lines.push(...listGroup('stale (template moved on; upgrade refreshes these)', p.stale));
+    lines.push(...listGroup('collided (both changed; will conflict on upgrade)', p.collided));
+    lines.push(brand.dim(`provenance baseline: ${p.ref} @ ${p.sha.slice(0, 8)}`));
+  } else {
+    lines.push(...listGroup('edited (yours; preserved by hex upgrade)', report.edited));
+  }
   lines.push(...listGroup('missing (rendered by the template, absent here)', report.missing));
   lines.push(...listGroup('untracked (yours alone; ignored by hex upgrade)', report.untracked));
   if (!report.dryRun) {
@@ -331,10 +385,47 @@ export async function runAdoptCommand(
       return;
     }
 
+    // The fit comparison, once for both paths (hashTree skips .hex, so
+    // the write below cannot change it).
+    const integrity = await checkLockfileIntegrity(projectRoot, lockfile);
+
+    // A7 — provenance enrichment. Advisory and report-only: any git
+    // failure warns and the report simply ships without the split.
+    let provenance: AdoptFitReport['provenance'];
+    if (opts.provenance !== undefined) {
+      const requestedRef = opts.provenance === true ? undefined : opts.provenance;
+      const provDir = await effects.makeShadowDir();
+      try {
+        const resolved = await effects.materialiseProvenance(projectRoot, requestedRef, provDir);
+        const toMap = (entries: LockFileEntry[]): Map<string, string> =>
+          new Map(entries.map((e) => [e.path, e.sha256]));
+        const split = splitEdited(
+          integrity.modified,
+          toMap(await hashTree(join(provDir, 'tree'))),
+          toMap(await hashTree(projectRoot)),
+          toMap(lockfile.files),
+        );
+        provenance = { ref: resolved.ref, sha: resolved.sha, ...split };
+      } catch (err) {
+        if (err instanceof ProvenanceError) {
+          effects.stderr.write(
+            `${brand.dim(`provenance: ${err.message} — continuing without the split`)}\n`,
+          );
+        } else {
+          throw err;
+        }
+      } finally {
+        await rm(provDir, { recursive: true, force: true });
+      }
+    }
+
     if (opts.dryRun) {
       // Read-only comparison; the project is never written.
-      const integrity = await checkLockfileIntegrity(projectRoot, lockfile);
-      emitReport(effects, buildAdoptReport(lockfile, integrity, { dryRun: true }), opts);
+      emitReport(
+        effects,
+        buildAdoptReport(lockfile, integrity, { dryRun: true }, provenance),
+        opts,
+      );
       return;
     }
 
@@ -345,8 +436,7 @@ export async function runAdoptCommand(
     await captureBaseline(projectRoot, shadowDir);
     await writeLockfile(projectRoot, lockfile);
 
-    const integrity = await checkLockfileIntegrity(projectRoot, lockfile);
-    emitReport(effects, buildAdoptReport(lockfile, integrity, { dryRun: false }), opts);
+    emitReport(effects, buildAdoptReport(lockfile, integrity, { dryRun: false }, provenance), opts);
     // Low fit is information, not failure — exit 0, like doctor.
   } finally {
     await rm(shadowDir, { recursive: true, force: true });
@@ -374,6 +464,10 @@ export function registerAdopt(program: Command): void {
       'replace an existing adoption without asking (required to re-adopt with --answers)',
       false,
     )
+    .option(
+      '--provenance [ref]',
+      "split the fit report's edited group into edited-by-you / stale / collided using the project's git history (default ref: the root commit); report-only",
+    )
     .action(
       async (
         templateArg: string | undefined,
@@ -383,6 +477,7 @@ export function registerAdopt(program: Command): void {
           answers?: string;
           trustLocal: boolean;
           readopt: boolean;
+          provenance?: string | boolean;
         },
       ) => {
         // `--json` stdout must stay parseable — no splash, no clack chrome.
@@ -396,6 +491,12 @@ export function registerAdopt(program: Command): void {
           answers: opts.answers,
           trustLocal: opts.trustLocal,
           readopt: opts.readopt,
+          provenance:
+            opts.provenance === true
+              ? true
+              : opts.provenance === false
+                ? undefined
+                : opts.provenance,
         });
       },
     );
