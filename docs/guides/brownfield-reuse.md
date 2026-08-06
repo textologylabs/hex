@@ -162,11 +162,22 @@ re-run the dry-run (it wrote nothing, so there's nothing to undo), repeat
 until the fit is honest.
 
 > **Reading "edited" honestly.** If the template repo kept improving after
-> the instance was copied, those improvements also show as "edited" — the
-> report can't distinguish *the team changed this* from *the template moved
-> on after the copy*. Present fit-% as "divergence from today's template",
-> not "how much the team changed", and expect the first upgrade to
-> reconcile the difference.
+> the instance was copied, those improvements also show as "edited" — plain
+> fit can't distinguish *the team changed this* from *the template moved on
+> after the copy*. The instance's own git history can. Add `--provenance`:
+>
+> ```sh
+> hex adopt ../acme-portal --dry-run --provenance
+> ```
+>
+> The edited group splits into **edited by you** (real team work, preserved
+> by upgrade), **stale** (the template improved; the first upgrade refreshes
+> these for free), and **collided** (both changed — the future merge
+> conflicts, known before any upgrade runs). The default baseline is the
+> instance's root commit; pass `--provenance <tag-or-sha>` when you know the
+> true copy point. "23 edited" becomes "6 team edits, 14 stale, 3 collisions
+> to review" — a much better number to bring to a meeting, and a de-risked
+> first upgrade.
 
 ## Step 3 — Adopt the instances
 
@@ -176,6 +187,10 @@ When the fit is credible, adopt for real:
 hex adopt ../acme-portal          # interactive prompts, or:
 hex adopt ../acme-portal --answers answers.yaml
 ```
+
+The interactive prompts arrive **prefilled from the project's own
+`package.json`** — a hand-copied instance carries its answers in-band, so
+adopting a well-matched project is usually just Enter, Enter, Enter.
 
 Adoption writes `.hex/` only — a lockfile recording the template, version,
 and answers, plus the pristine baseline that future upgrades merge against.

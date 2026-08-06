@@ -341,6 +341,9 @@ function adoptEffects(templateRoot: string): {
       prompterFactory: () => createNonInteractivePrompter(),
       resolveTemplate: async () => loadFromPath(templateRoot, 'file'),
       makeShadowDir: () => mkdtemp(join(tmpdir(), 'hex-hexify-int-adopt-')),
+      materialiseProvenance: async () => {
+        throw new Error('materialiseProvenance not used in this pack');
+      },
     },
   };
 }

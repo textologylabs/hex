@@ -31,6 +31,7 @@ import { createClackPrompter } from '../core/prompts/clack-prompter.js';
 import type { Prompter } from '../core/prompts/types.js';
 import { loadFromPath } from '../core/sources/file-source.js';
 import { writeFileAtomic } from '../core/util/atomic.js';
+import { type PackageSeeds, readPackageSeeds } from '../core/util/package-seeds.js';
 
 /**
  * `hex hexify` (Hex 2.0 / H1). Converts a plain, manually-maintained
@@ -284,33 +285,6 @@ async function pathExists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-type PackageSeeds = {
-  name?: string;
-  description?: string;
-  author?: string;
-  license?: string;
-};
-
-async function readPackageSeeds(repoRoot: string): Promise<PackageSeeds> {
-  try {
-    const raw = await readFile(join(repoRoot, 'package.json'), 'utf8');
-    const pkg = JSON.parse(raw) as Record<string, unknown>;
-    const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
-    const author =
-      typeof pkg.author === 'object' && pkg.author !== null
-        ? str((pkg.author as Record<string, unknown>).name)
-        : str(pkg.author);
-    return {
-      name: str(pkg.name),
-      description: str(pkg.description),
-      author,
-      license: str(pkg.license),
-    };
-  } catch {
-    return {};
   }
 }
 

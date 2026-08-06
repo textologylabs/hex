@@ -413,6 +413,18 @@ Also check re-adopt (1.1): run `adopt` again on the adopted project — it must
 ask "Already adopted (…) — re-adopt…?" with default No; declining prints
 "re-adopt declined" and changes nothing; confirming replaces the adoption.
 
+Also check the 1.2 pair:
+- **Answer bootstrap (A3)**: give the scratch project a `package.json` whose
+  `name` matches the template's `project_name` answer — the interactive
+  prompt must arrive prefilled with it (Enter accepts); an `--answers` run
+  must take its values only from the YAML.
+- **Provenance (A7)**: `git init && commit` the project first, edit one file,
+  bump a template copy so another file changes upstream, then
+  `adopt <copy> --dry-run --provenance` — the report must split edited into
+  "edited by you" / "stale" / "collided" with a `provenance baseline:` line;
+  on a non-git project it must print the "continuing without the split"
+  warning and still exit 0.
+
 ---
 
 ## 7. `hex hexify` end-to-end (Hex 2.0)
