@@ -232,3 +232,86 @@ describe('flagship template headless (vite-ts-spa via --answers)', () => {
     expect(fit.fitPercent).toBeLessThan(100);
   });
 });
+
+describe('adopt --provenance: the A7 three-buckets arc (real git)', () => {
+  async function git(cwd: string, ...args: string[]): Promise<void> {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    await promisify(execFile)('git', args, { cwd });
+  }
+
+  it('splits edited into yours / stale / collided against the instance root commit', async () => {
+    // Template v1 — what the team originally copied.
+    const template = await writeTemplate(join(work, 'template'), '1.0.0', {
+      'a.ts': 'a v1\n',
+      'b.ts': 'b v1\n',
+      'c.ts': 'c v1\n',
+      'd.ts': 'd v1\n',
+    });
+    const app = await renderThenStripHex(template, join(work, 'app'));
+
+    // The copy moment becomes the root commit — the provenance baseline.
+    await git(app, 'init', '-q', '-b', 'main');
+    await git(app, 'config', 'user.email', 't@e.c');
+    await git(app, 'config', 'user.name', 't');
+    await git(app, 'add', '-A');
+    await git(app, 'commit', '-q', '-m', 'copied from template');
+
+    // The team edits a and c.
+    await writeFile(join(app, 'a.ts'), 'a v1 + team change\n', 'utf8');
+    await writeFile(join(app, 'c.ts'), 'c v1 + team change\n', 'utf8');
+    await git(app, 'add', '-A');
+    await git(app, 'commit', '-q', '-m', 'team work');
+
+    // Meanwhile the template evolves: b and c change upstream.
+    await writeTemplate(template, '1.1.0', {
+      'a.ts': 'a v1\n',
+      'b.ts': 'b v2 upstream\n',
+      'c.ts': 'c v2 upstream\n',
+      'd.ts': 'd v1\n',
+    });
+
+    // Adopt with provenance: a = yours, b = stale, c = collided, d = clean.
+    const { effects, stdout, stderr, exitCodes } = makeEffects(template);
+    await runAdoptCommand(app, 'adopt-fixture', effects, {
+      dryRun: true,
+      json: true,
+      provenance: true,
+    });
+
+    expect(stderr).toEqual([]);
+    expect(exitCodes).toEqual([]);
+    const report = JSON.parse(stdout.join('')) as AdoptFitReport;
+    expect(report.edited).toEqual(['a.ts', 'b.ts', 'c.ts']);
+    expect(report.clean).toContain('d.ts');
+    expect(report.provenance).toMatchObject({
+      ref: 'root commit',
+      editedByYou: ['a.ts'],
+      stale: ['b.ts'],
+      collided: ['c.ts'],
+    });
+    expect(report.provenance?.sha).toMatch(/^[0-9a-f]{40}$/);
+    // Report-only: nothing written on dry-run.
+    expect(existsSync(join(app, '.hex'))).toBe(false);
+  });
+
+  it('warns and continues when the project has no git history', async () => {
+    const template = await writeTemplate(join(work, 'template'), '1.0.0', {
+      'a.ts': 'a v1\n',
+    });
+    const app = await renderThenStripHex(template, join(work, 'app-nogit'));
+
+    const { effects, stdout, stderr, exitCodes } = makeEffects(template);
+    await runAdoptCommand(app, 'adopt-fixture', effects, {
+      dryRun: true,
+      json: true,
+      provenance: true,
+    });
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toContain('continuing without the split');
+    const report = JSON.parse(stdout.join('')) as AdoptFitReport;
+    expect(report.provenance).toBeUndefined();
+    expect(report.fitPercent).toBe(100);
+  });
+});

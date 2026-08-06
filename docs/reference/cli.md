@@ -212,6 +212,13 @@ hex adopt [template] [flags]
 The `template` argument accepts the same forms as `hex new` (path, registered
 name, catalogue address); omit it for the interactive picker.
 
+Interactive runs **prefill prompt defaults from the project's own
+`package.json`** (name → `project_name`, plus description / author /
+license) — a hand-copied instance carries its answers in-band, so adopting a
+matching project is just Enter-Enter-Enter. Defaults are only ever offered,
+never silently assumed, and `--answers` runs take their values exclusively
+from the file.
+
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--dry-run` | `false` | Render + compare and print the fit report; write **nothing**. |
@@ -219,6 +226,7 @@ name, catalogue address); omit it for the interactive picker.
 | `--answers <file>` | — | Answer prompts non-interactively from a YAML file (requires an explicit template argument). |
 | `--trust-local` | `false` | Run JS hooks unsandboxed for local `FileSource` templates. |
 | `--readopt` | `false` | Replace an existing adoption without asking (required to re-adopt in `--answers` mode). |
+| `--provenance [ref]` | — | Split the fit report's `edited` group into edited-by-you / stale / collided using the project's own git history (default ref: its root commit). Report-only. |
 
 **Re-adopting** — running `hex adopt` on an already-adopted project asks
 *"Already adopted (name@version) — re-adopt and replace the existing
@@ -245,6 +253,21 @@ thing. `--dry-run` is a pure preview.
 `fit % = clean / recorded`. A fit preview on a known instance is also a
 quality gauge for a freshly authored template: low fit means the template's
 parameterisation doesn't reproduce the project it supposedly describes.
+
+**`--provenance` (provenance-aware fit)** — plain `edited` conflates two
+stories: *the team changed this* and *the template moved on after the copy*.
+The project's own git history can tell them apart: `--provenance`
+materialises the instance's tree at an early ref (default: its **root
+commit** — the closest recorded state to the original hand-copy) and
+compares three trees per edited file. The report then splits `edited` into
+**edited by you** (preserved by upgrade), **stale** (the template improved;
+upgrade refreshes these for free), and **collided** (both changed — the
+future merge conflicts, enumerated *before* any upgrade runs). Advisory and
+report-only: it never changes what adopt writes, `fitPercent` is unmoved,
+`edited` remains the full union in JSON, and any git failure (no repo, bad
+ref) prints a warning and continues without the split — never a hard error.
+Teams squash, so treat the ref as a hint: pass one explicitly
+(`--provenance <tag-or-sha>`) when you know the true copy point.
 
 **Exit codes** — `0` on success *even at low fit* (fit is information, not a
 gate — inspect and decide) and on a declined re-adopt; `1` on hard errors
