@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] — 2026-08-06
+
+The AI-handoff and honest-fit release, completing the brownfield kit for
+enterprise hand-offs: `hexify` gains an agent briefing/plan loop that
+keeps Hex itself AI-free, and `adopt` gains a provenance-aware fit
+report (edited split into yours / stale / collided via the instance's
+own git history) plus zero-typing adoption of projects whose answers
+live in their `package.json`.
 
 ### Added
 
