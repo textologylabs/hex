@@ -126,7 +126,11 @@ export function coerceSuppliedAnswer(p: Prompt, raw: unknown): unknown {
   }
 }
 
-async function askPrompt(prompter: Prompter, p: Prompt): Promise<unknown> {
+async function askPrompt(
+  prompter: Prompter,
+  p: Prompt,
+  defaultOverride?: unknown,
+): Promise<unknown> {
   const def = p.def;
   const message = def.description ?? p.name;
 
@@ -134,7 +138,10 @@ async function askPrompt(prompter: Prompter, p: Prompt): Promise<unknown> {
     case 'string': {
       const result = await prompter.text({
         message,
-        default: def.default,
+        // A3: a caller-supplied bootstrap value (e.g. read from the
+        // project's own package.json) overrides the widget default only —
+        // required-ness and headless fallbacks still read def.default.
+        default: typeof defaultOverride === 'string' ? defaultOverride : def.default,
         validate: (v) => validateString(def, v),
       });
       return result;
@@ -204,6 +211,10 @@ async function askPrompt(prompter: Prompter, p: Prompt): Promise<unknown> {
  * skipped — no header, no progress events. Same-section dependencies
  * still work for runtime skipping; the header heuristic only catches the
  * "entire section gated by a previous answer" case.
+ *
+ * `defaults` (A3): per-prompt widget-default overrides for interactive
+ * runs — the user still confirms every value. Ignored entirely in
+ * `supplied` (answers-file) mode, and never affects required-ness.
  */
 export async function runPrompts(
   prompts: Prompt[],
@@ -211,6 +222,7 @@ export async function runPrompts(
   initial: Answers = {},
   sections?: Section[],
   supplied?: Answers,
+  defaults?: Answers,
 ): Promise<Answers> {
   const answers: Answers = { ...initial };
   const plans = planSections(prompts, sections);
@@ -276,7 +288,7 @@ export async function runPrompts(
           promptTotal,
         });
       }
-      answers[p.name] = await askPrompt(prompter, p);
+      answers[p.name] = await askPrompt(prompter, p, defaults?.[p.name]);
     }
 
     if (sectionInfo) prompter.sectionEnd?.(sectionInfo);

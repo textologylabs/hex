@@ -30,6 +30,7 @@ import type { Answers, Prompter } from '../core/prompts/types.js';
 import { renderBundle } from '../core/render/engine.js';
 import type { ComponentBundle } from '../core/sources/file-source.js';
 import { captureBaseline } from '../core/upgrade/baseline.js';
+import { readPackageSeeds, seedDefaults } from '../core/util/package-seeds.js';
 import { NewCommandError, resolveTemplate } from './new.js';
 
 /**
@@ -342,6 +343,11 @@ export async function runAdoptCommand(
   }
 
   // Prompts — before any temp dir exists, so a cancel needs no cleanup.
+  // A3: interactive runs prefill widget defaults from the project's own
+  // package.json (the values a hand-copied instance carries in-band) —
+  // the user still confirms every one. Answers mode gets no defaults:
+  // headless answers must come only from the file.
+  const bootstrap = supplied === undefined ? seedDefaults(await readPackageSeeds(projectRoot)) : {};
   let answers: Answers;
   try {
     answers = await runPrompts(
@@ -350,6 +356,7 @@ export async function runAdoptCommand(
       {},
       bundle.manifest.sections,
       supplied,
+      bootstrap,
     );
   } catch (err) {
     if (err instanceof PromptError) {

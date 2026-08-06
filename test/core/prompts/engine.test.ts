@@ -446,3 +446,77 @@ describe('runPrompts — non-interactive answers mode (M15.17)', () => {
     expect('log_level' in answers).toBe(false);
   });
 });
+
+describe('runPrompts defaults overrides (A3)', () => {
+  const prompts: Prompt[] = [
+    { name: 'project_name', def: { type: 'string', required: true } },
+    { name: 'license', def: { type: 'string', default: 'MIT' } },
+    { name: 'containerize', def: { type: 'boolean', default: false } },
+  ];
+
+  function defaultCapturingPrompter(): { prompter: Prompter; seen: Record<string, unknown> } {
+    const seen: Record<string, unknown> = {};
+    const prompter: Prompter = {
+      async text(opts) {
+        seen[opts.message] = opts.default;
+        return opts.default ?? '';
+      },
+      async confirm(opts) {
+        seen[opts.message] = opts.default;
+        return opts.default ?? true;
+      },
+      async select() {
+        throw new Error('select not used');
+      },
+      async multiselect() {
+        throw new Error('multiselect not used');
+      },
+      async password() {
+        throw new Error('password not used');
+      },
+    };
+    return { prompter, seen };
+  }
+
+  it('overrides the widget default for string prompts only', async () => {
+    const { prompter, seen } = defaultCapturingPrompter();
+    const answers = await runPrompts(prompts, prompter, {}, undefined, undefined, {
+      project_name: 'from-pkg',
+      containerize: 'true', // non-boolean prompt type — ignored
+    });
+    expect(seen.project_name).toBe('from-pkg');
+    expect(seen.license).toBe('MIT'); // no override → manifest default
+    expect(seen.containerize).toBe(false); // boolean untouched by overrides
+    expect(answers.project_name).toBe('from-pkg');
+  });
+
+  it('ignores non-string override values for string prompts', async () => {
+    const { prompter, seen } = defaultCapturingPrompter();
+    await runPrompts(prompts, prompter, {}, undefined, undefined, {
+      license: 42 as unknown as string,
+    });
+    expect(seen.license).toBe('MIT');
+  });
+
+  it('is inert in supplied (answers-file) mode', async () => {
+    const die = (): never => {
+      throw new Error('no prompt should fire in supplied mode');
+    };
+    const strict: Prompter = {
+      text: async () => die(),
+      confirm: async () => die(),
+      select: async () => die(),
+      multiselect: async () => die(),
+      password: async () => die(),
+    };
+    const answers = await runPrompts(
+      prompts,
+      strict,
+      {},
+      undefined,
+      { project_name: 'from-answers' },
+      { project_name: 'from-pkg' },
+    );
+    expect(answers.project_name).toBe('from-answers');
+  });
+});

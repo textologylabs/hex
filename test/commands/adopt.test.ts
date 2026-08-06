@@ -688,3 +688,63 @@ describe('adopt --provenance (A7)', () => {
     expect(report.fitPercent).toBe(100);
   });
 });
+
+describe('adopt answer bootstrap (A3)', () => {
+  /** Prompter that records each text widget's default and accepts it (the Enter-Enter path). */
+  function enterEnterPrompter(): { prompter: Prompter; defaults: Record<string, unknown> } {
+    const defaults: Record<string, unknown> = {};
+    const prompter: Prompter = {
+      async text(opts) {
+        defaults[opts.message] = opts.default;
+        if (opts.default === undefined) throw new Error(`no default offered for: ${opts.message}`);
+        return opts.default;
+      },
+      async confirm() {
+        throw new Error('confirm not used');
+      },
+      async select() {
+        throw new Error('select not used');
+      },
+      async multiselect() {
+        throw new Error('multiselect not used');
+      },
+      async password() {
+        throw new Error('password not used');
+      },
+    };
+    return { prompter, defaults };
+  }
+
+  it('prefills prompt defaults from the project package.json — adoption is Enter-Enter', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildMatchingProject('a3-project');
+    const { prompter, defaults } = enterEnterPrompter();
+    const cap = captureEffects(template, prompter);
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, {});
+
+    expect(cap.exitCodes).toEqual([]);
+    // The prompt (no description → message = name) offered the in-band value…
+    expect(defaults.project_name).toBe('my-app');
+    // …and accepting it produced a perfect adoption.
+    const lockfileText = await readFile(join(project, '.hex', 'lockfile.yaml'), 'utf8');
+    const lf = lockfileSchema.parse(parseYaml(lockfileText));
+    expect(lf.answers).toEqual({ project_name: 'my-app' });
+  });
+
+  it('never leaks bootstrap values into answers mode', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildMatchingProject('a3-answers');
+    const answersFile = join(work, 'answers.yaml');
+    await writeFile(answersFile, 'project_name: other-app\n', 'utf8');
+    const cap = captureEffects(template);
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, { answers: answersFile });
+
+    expect(cap.exitCodes).toEqual([]);
+    const lockfileText = await readFile(join(project, '.hex', 'lockfile.yaml'), 'utf8');
+    const lf = lockfileSchema.parse(parseYaml(lockfileText));
+    // The YAML's value, not package.json's "my-app".
+    expect(lf.answers).toEqual({ project_name: 'other-app' });
+  });
+});
