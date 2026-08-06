@@ -36,7 +36,7 @@ values as answers — nothing touches your repo unless every file returns
 
 ## Prerequisites
 
-- Node 20+, git, and `npm i -g @hexology/hex` (1.1.0 or later).
+- Node 20+, git, and `npm i -g @hexology/hex` (1.2.0 or later).
 - The template repo checked out, committed clean.
 - Ideally: one known instance of it, for `--against` (below).
 
@@ -239,7 +239,7 @@ done
 Fit-% per repo is a reuse metric a leadership dashboard can track; the
 edited-lists are each team's reconciliation worklist.
 
-## Limits worth knowing (1.1)
+## Limits worth knowing (1.2)
 
 - **One template per project.** A project assembled by hand from several
   templates can adopt against one of them; multi-template adoption is a

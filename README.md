@@ -2,7 +2,7 @@
 
 Scaffolding tool that assembles applications from templated components — honeycomb-style. Part of the [Hexology](https://github.com/textologylabs/hex) toolset.
 
-Status: **v0.9.0 — first npm release**. Phase 1 (render pipeline, recipes, hosted-marketplace foundations, lockfile, upgrade engine — M1–M11), Phase 2 (deploy + CI/CD — M12), and the git-catalogue marketplace model (M13) are shipped. The M14 release pass added the publish workflow, setup-task executor + hand-off ritual, doctor surfaces, and the dogfood walkthrough. See [`idea.md`](./idea.md) for the roadmap and [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
+Status: **v1.2.0**. The 1.x line ships the full scaffolding stack (render pipeline, recipes, lockfile, 3-way-merge upgrades, git-catalogue marketplace, deploy + CI/CD) plus the **brownfield reuse kit**: `hex hexify` converts existing template repos in place (with an optional AI-agent handoff — Hex itself stays AI-free), `hex adopt` links hand-made copies with a provenance-aware fit report, and `hex upgrade` propagates improvements. See [`CHANGELOG.md`](./CHANGELOG.md) for what's released.
 
 Install: `npm install -g @hexology/hex` (or `npx --yes @hexology/hex@latest`) and run `hex`.
 
@@ -185,4 +185,4 @@ is the matrix.
 
 ## Roadmap
 
-See `idea.md` § *Incremental build plan*. Phase 1 (configurable scaffolder, M1–M11) and Phase 2 (deploy + CI/CD, M12) are shipped. The git-catalogue marketplace (M13) makes Hex usable in real teams without anyone running a registry server. The M14 release pass cut v0.9.0 — first published `@hexology/hex` on npm. The hosted-registry path remains parked at M9.9 — see [`docs/marketplace.md`](./docs/marketplace.md) for the pickup notes.
+See `idea.md` § *Incremental build plan*. Phases 1–2 (scaffolder + deploy/CI-CD) and the git-catalogue marketplace shipped through 1.0. The 1.1–1.2 releases added the brownfield reuse kit — hexify / adopt / upgrade, instance-informed mining, the AI-agent handoff, and the provenance-aware fit report; see the [brownfield handbook](./docs/guides/brownfield-reuse.md). Next up: extract-from-projects (distill a template from several sibling projects) as pilot findings come in. The hosted-registry path remains parked at M9.9 — see [`docs/marketplace.md`](./docs/marketplace.md) for the pickup notes.
