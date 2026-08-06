@@ -94,6 +94,18 @@ describe('resolveProvenanceRef / materialiseRef (real git)', () => {
     expect(await readFile(join(tree, 'src', 'index.ts'), 'utf8')).toBe('v1\n');
   });
 
+  it('materialises blobs as stored regardless of core.autocrlf (the Windows default)', async () => {
+    const repo = await scratchRepo();
+    // Reproduce the Windows-runner condition on any OS: with
+    // autocrlf=true, `git archive` would CRLF-convert text output.
+    await git(repo, 'config', 'core.autocrlf', 'true');
+    const resolved = await resolveProvenanceRef(repo, undefined);
+    const dest = join(work, 'dest-crlf');
+    await mkdir(dest, { recursive: true });
+    const tree = await materialiseRef(repo, resolved.sha, dest);
+    expect(await readFile(join(tree, 'src', 'index.ts'), 'utf8')).toBe('v1\n');
+  });
+
   it('resolves an explicit ref and rejects a bogus one', async () => {
     const repo = await scratchRepo();
     const head = await resolveProvenanceRef(repo, 'HEAD');

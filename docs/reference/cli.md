@@ -267,7 +267,10 @@ report-only: it never changes what adopt writes, `fitPercent` is unmoved,
 `edited` remains the full union in JSON, and any git failure (no repo, bad
 ref) prints a warning and continues without the split — never a hard error.
 Teams squash, so treat the ref as a hint: pass one explicitly
-(`--provenance <tag-or-sha>`) when you know the true copy point.
+(`--provenance <tag-or-sha>`) when you know the true copy point. One
+line-ending caveat: the ref tree is materialised with the blobs as stored
+(LF), so a working tree checked out with CRLF conversion will over-report
+"edited by you" — normalise line endings first for an honest split.
 
 **Exit codes** — `0` on success *even at low fit* (fit is information, not a
 gate — inspect and decide) and on a declined re-adopt; `1` on hard errors

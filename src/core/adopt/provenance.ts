@@ -75,7 +75,19 @@ export async function materialiseRef(
   const tarPath = join(destDir, 'ref.tar');
   const treeDir = join(destDir, 'tree');
   await mkdir(treeDir, { recursive: true });
-  await git(projectRoot, ['archive', '--format=tar', '-o', tarPath, sha]);
+  // Suppress end-of-line conversion: with core.autocrlf=true (the
+  // Git-for-Windows default) `git archive` would emit CRLF for text
+  // files, making every hash differ from the LF blobs and misclassifying
+  // the whole tree as "touched".
+  await git(projectRoot, [
+    '-c',
+    'core.autocrlf=false',
+    'archive',
+    '--format=tar',
+    '-o',
+    tarPath,
+    sha,
+  ]);
   try {
     await extract({ file: tarPath, cwd: treeDir });
   } catch (err) {
