@@ -194,6 +194,7 @@ describe('M8.7 — stub recipe integration: db-postgres rendered stub on/off', (
         modified: [],
         missing: [],
         added: [],
+        eolOnly: [],
       });
     }
   });

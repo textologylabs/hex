@@ -167,7 +167,7 @@ describe('reconstructPristine — round-trip', () => {
 
     // Byte-identical: every recorded hash matches, nothing missing/added.
     const integrity = await checkLockfileIntegrity(pristine, lockfile);
-    expect(integrity).toEqual({ ok: true, modified: [], missing: [], added: [] });
+    expect(integrity).toEqual({ ok: true, modified: [], missing: [], added: [], eolOnly: [] });
   });
 
   it('reconstructs a standalone component byte-identically', async () => {

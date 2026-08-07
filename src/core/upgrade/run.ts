@@ -9,7 +9,13 @@ import {
   readLockfileUpward,
   writeLockfile,
 } from '../lockfile/index.js';
-import { commitBaseline, discardBaseline, stageBaseline } from './baseline.js';
+import {
+  BASELINE_REL_PATH,
+  commitBaseline,
+  discardBaseline,
+  hasBaseline,
+  stageBaseline,
+} from './baseline.js';
 import { type MigrationStep, walkUpgradeChain } from './chain.js';
 import { type MergeResult, type OrphanDecision, mergeTrees } from './merge.js';
 import {
@@ -134,7 +140,14 @@ export async function runUpgrade(input: RunUpgradeInput): Promise<UpgradeOutcome
 
   // Files the user has edited since generation — `delete_if_unmodified`
   // migrations need this to decide whether to keep an edited copy.
-  const integrity = await checkLockfileIntegrity(root, loaded.lockfile);
+  // A5b: with the pristine baseline as reference, a CRLF-only checkout
+  // does not count as "user modified" (so those deletions actually fire
+  // on Windows, as they should).
+  const integrity = await checkLockfileIntegrity(
+    root,
+    loaded.lockfile,
+    hasBaseline(root) ? { referenceTree: join(root, BASELINE_REL_PATH) } : {},
+  );
   const userModified = new Set(integrity.modified);
 
   // The chain walk only *discovers* migrations — every hop's migration

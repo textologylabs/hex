@@ -18,7 +18,7 @@ import {
   type LockfileIntegrity,
   buildLockfile,
   checkLockfileIntegrity,
-  hashTree,
+  hashTreeForComparison,
   readLockfileUpward,
   writeLockfile,
 } from '../core/lockfile/index.js';
@@ -138,6 +138,11 @@ export type AdoptFitReport = {
   fitPercent: number;
   dryRun: boolean;
   /**
+   * A5b (present when non-empty): recorded files that differ only in
+   * line endings — counted CLEAN; a CRLF checkout is not an edit.
+   */
+  eolOnly?: string[];
+  /**
    * A7 enrichment (only on `--provenance` runs): `edited` split by the
    * instance's early-ref tree. The three lists partition `edited`;
    * fitPercent is unaffected.
@@ -178,6 +183,7 @@ export function buildAdoptReport(
     untracked: [...integrity.added].sort(),
     fitPercent: recorded === 0 ? 0 : Math.round((100 * clean.length) / recorded),
     dryRun: opts.dryRun,
+    ...(integrity.eolOnly.length === 0 ? {} : { eolOnly: [...integrity.eolOnly].sort() }),
     ...(provenance === undefined ? {} : { provenance }),
   };
 }
@@ -214,6 +220,15 @@ export function formatAdoptText(report: AdoptFitReport): string {
   }
   lines.push(...listGroup('missing (rendered by the template, absent here)', report.missing));
   lines.push(...listGroup('untracked (yours alone; ignored by hex upgrade)', report.untracked));
+  if (report.eolOnly !== undefined && report.eolOnly.length > 0) {
+    lines.push(
+      brand.dim(
+        `${report.eolOnly.length} file${
+          report.eolOnly.length === 1 ? '' : 's'
+        } differ only in line endings — counted clean`,
+      ),
+    );
+  }
   if (!report.dryRun) {
     lines.push(brand.dim('inspect any time with hex doctor — reversible with: rm -rf .hex'));
   }
@@ -393,8 +408,12 @@ export async function runAdoptCommand(
     }
 
     // The fit comparison, once for both paths (hashTree skips .hex, so
-    // the write below cannot change it).
-    const integrity = await checkLockfileIntegrity(projectRoot, lockfile);
+    // the write below cannot change it). The shadow render is the
+    // reference tree: a CRLF checkout of an LF template classifies
+    // eolOnly, not edited (A5b).
+    const integrity = await checkLockfileIntegrity(projectRoot, lockfile, {
+      referenceTree: shadowDir,
+    });
 
     // A7 — provenance enrichment. Advisory and report-only: any git
     // failure warns and the report simply ships without the split.
@@ -404,13 +423,16 @@ export async function runAdoptCommand(
       const provDir = await effects.makeShadowDir();
       try {
         const resolved = await effects.materialiseProvenance(projectRoot, requestedRef, provDir);
+        // All three trees hash in the same eol-normalised form (A5b), so
+        // a CRLF checkout can't fake "touched"; the template side hashes
+        // from the shadow render rather than the lockfile's raw digests.
         const toMap = (entries: LockFileEntry[]): Map<string, string> =>
           new Map(entries.map((e) => [e.path, e.sha256]));
         const split = splitEdited(
           integrity.modified,
-          toMap(await hashTree(join(provDir, 'tree'))),
-          toMap(await hashTree(projectRoot)),
-          toMap(lockfile.files),
+          toMap(await hashTreeForComparison(join(provDir, 'tree'))),
+          toMap(await hashTreeForComparison(projectRoot)),
+          toMap(await hashTreeForComparison(shadowDir)),
         );
         provenance = { ref: resolved.ref, sha: resolved.sha, ...split };
       } catch (err) {

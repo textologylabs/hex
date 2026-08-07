@@ -167,6 +167,19 @@ describe('formatLockfileSection', () => {
     expect(out).toContain('2 modified, 1 missing, 1 added');
   });
 
+  it('reports clean with a line-endings note when only eolOnly diverges (A5b)', () => {
+    const integrity: LockfileIntegrity = {
+      ok: true,
+      modified: [],
+      missing: [],
+      added: [],
+      eolOnly: ['src/index.ts', 'package.json'],
+    };
+    const out = formatLockfileSection(loaded(fakeRecipeLockfile()), integrity);
+    expect(out).toContain('integrity clean');
+    expect(out).toContain('2 files differ only in line endings');
+  });
+
   it('uses the singular for a lone divergence', () => {
     const integrity: LockfileIntegrity = {
       ok: false,

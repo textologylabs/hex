@@ -764,3 +764,74 @@ describe('adopt answer bootstrap (A3)', () => {
     expect(lf.answers).toEqual({ project_name: 'other-app' });
   });
 });
+
+describe('adopt CRLF tolerance (A5b)', () => {
+  /** The my-app render, but as a Windows checkout would hold it. */
+  async function buildCrlfProject(name: string): Promise<string> {
+    const root = join(work, name);
+    await writeFileEnsure(join(root, 'package.json'), '{"name": "my-app"}\r\n');
+    await writeFileEnsure(join(root, 'src', 'index.ts'), 'export const x = 1;\r\n');
+    return root;
+  }
+
+  it('a CRLF checkout of an LF template reads fit 100% with eolOnly surfaced', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildCrlfProject('crlf-project');
+    const cap = captureEffects(template);
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, { dryRun: true, json: true });
+
+    expect(cap.exitCodes).toEqual([]);
+    const report = JSON.parse(cap.stdout.join('')) as AdoptFitReport;
+    expect(report.fitPercent).toBe(100);
+    expect(report.clean).toEqual(['package.json', 'src/index.ts']);
+    expect(report.edited).toEqual([]);
+    expect(report.eolOnly).toEqual(['package.json', 'src/index.ts']);
+  });
+
+  it('renders the counted-clean line in text mode', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildCrlfProject('crlf-text');
+    const cap = captureEffects(template);
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, { dryRun: true });
+
+    expect(cap.stdout.join('')).toContain('2 files differ only in line endings — counted clean');
+    expect(cap.stdout.join('')).toContain('fit 100%');
+  });
+
+  it('a genuine edit on a CRLF tree still classifies edited, and provenance splits it right', async () => {
+    const template = await buildTemplateFixture();
+    const project = join(work, 'crlf-prov');
+    // Edited AND CRLF: content change on top of line endings.
+    await writeFileEnsure(join(project, 'package.json'), '{"name": "my-app", "extra": true}\r\n');
+    // CRLF-only: must be eolOnly, never reaching the provenance split.
+    await writeFileEnsure(join(project, 'src', 'index.ts'), 'export const x = 1;\r\n');
+
+    const cap = captureEffects(template);
+    cap.effects.materialiseProvenance = async (_root, ref, destDir) => {
+      // Ref tree = the original copy (LF, unedited).
+      await writeFileEnsure(join(destDir, 'tree', 'package.json'), '{"name": "my-app"}\n');
+      await writeFileEnsure(join(destDir, 'tree', 'src', 'index.ts'), 'export const x = 1;\n');
+      return { ref: ref ?? 'root commit', sha: 'cd'.repeat(20) };
+    };
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, {
+      dryRun: true,
+      json: true,
+      provenance: true,
+    });
+
+    expect(cap.exitCodes).toEqual([]);
+    const report = JSON.parse(cap.stdout.join('')) as AdoptFitReport;
+    expect(report.edited).toEqual(['package.json']);
+    expect(report.eolOnly).toEqual(['src/index.ts']);
+    // Team edited it (normalised ref ≠ normalised HEAD); template did not
+    // move (normalised ref == normalised shadow render) → edited by you.
+    expect(report.provenance).toMatchObject({
+      editedByYou: ['package.json'],
+      stale: [],
+      collided: [],
+    });
+  });
+});

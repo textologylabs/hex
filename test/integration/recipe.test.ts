@@ -304,7 +304,7 @@ describe('recipe pipeline — load → resolve → prompt → render → checkli
 
     // Integrity of the freshly-rendered tree is clean — nothing diverged.
     const integrity = await checkLockfileIntegrity(out, loaded.lockfile);
-    expect(integrity).toEqual({ ok: true, modified: [], missing: [], added: [] });
+    expect(integrity).toEqual({ ok: true, modified: [], missing: [], added: [], eolOnly: [] });
   });
 
   it('skips the checklist when neither recipe nor any child declares setup tasks', async () => {
