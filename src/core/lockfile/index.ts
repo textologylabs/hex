@@ -8,6 +8,7 @@ import type { ChildRef } from '../manifest/types.js';
 import type { Cicd, Deploy } from '../manifest/types.js';
 import type { Answers } from '../prompts/types.js';
 import type { ResolvedRecipe } from '../recipe/resolve.js';
+import { looksBinary } from '../render/engine.js';
 import type { ComponentBundle } from '../sources/file-source.js';
 import {
   LOCKFILE_SCHEMA_VERSION,
@@ -175,8 +176,9 @@ export async function readLockfileUpward(startDir: string): Promise<LoadedLockfi
 }
 
 /**
- * The outcome of an integrity check. `modified` / `missing` / `added`
- * are POSIX-relative paths; `ok` is true only when all three are empty.
+ * The outcome of an integrity check. All lists are POSIX-relative
+ * paths; `ok` is true only when `modified`/`missing`/`added` are empty
+ * (`eolOnly` divergence is tolerated — see below).
  */
 export type LockfileIntegrity = {
   /** True when nothing has diverged from the lockfile's record. */
@@ -187,6 +189,14 @@ export type LockfileIntegrity = {
   missing: string[];
   /** Files present in the tree but absent from the lockfile. */
   added: string[];
+  /**
+   * A5b: recorded files whose ONLY divergence is line endings (a CRLF
+   * checkout of an LF render — the Windows default). Detected only when
+   * a `referenceTree` is supplied; excluded from `modified` and from
+   * the `ok` verdict, because a line-ending flip is the checkout's
+   * doing, not an edit.
+   */
+  eolOnly: string[];
 };
 
 /**
@@ -197,15 +207,23 @@ export type LockfileIntegrity = {
  *
  * The walk excludes `.hex/`, `.git/`, and `node_modules/`, matching
  * `buildLockfile` exactly so the comparison stays apples-to-apples.
+ *
+ * `opts.referenceTree` — a directory holding the template-side BYTES
+ * the lockfile's hashes were built from (adopt: the shadow render;
+ * doctor/upgrade: `.hex/pristine/`). When given, each raw-hash mismatch
+ * is re-examined: both sides read, binaries skipped, and files equal
+ * after `\r\n`→`\n` normalisation are demoted to `eolOnly`. Without it,
+ * behaviour is byte-identical to the raw comparison.
  */
 export async function checkLockfileIntegrity(
   rootDir: string,
   lockfile: Lockfile,
+  opts: { referenceTree?: string } = {},
 ): Promise<LockfileIntegrity> {
   const current = new Map((await hashTree(rootDir)).map((e) => [e.path, e.sha256]));
   const recorded = new Map(lockfile.files.map((e) => [e.path, e.sha256]));
 
-  const modified: string[] = [];
+  let modified: string[] = [];
   const missing: string[] = [];
   for (const [path, sha] of recorded) {
     const cur = current.get(path);
@@ -216,15 +234,62 @@ export async function checkLockfileIntegrity(
   for (const path of current.keys()) {
     if (!recorded.has(path)) added.push(path);
   }
+
+  const eolOnly: string[] = [];
+  if (opts.referenceTree !== undefined && modified.length > 0) {
+    const stillModified: string[] = [];
+    for (const path of modified) {
+      if (await differsOnlyByEol(join(rootDir, path), join(opts.referenceTree, path))) {
+        eolOnly.push(path);
+      } else {
+        stillModified.push(path);
+      }
+    }
+    modified = stillModified;
+  }
+
   modified.sort();
   missing.sort();
   added.sort();
+  eolOnly.sort();
   return {
     ok: modified.length === 0 && missing.length === 0 && added.length === 0,
     modified,
     missing,
     added,
+    eolOnly,
   };
+}
+
+/**
+ * True when two files hold identical bytes after `\r\n`→`\n`
+ * normalisation — and are genuinely text (binaries are never
+ * normalised; a `0D 0A` byte pair in a PNG is data, not a newline).
+ * Any read failure (e.g. the reference lacks the file) means "no".
+ */
+async function differsOnlyByEol(filePath: string, referencePath: string): Promise<boolean> {
+  let a: Buffer;
+  let b: Buffer;
+  try {
+    a = await readFile(filePath);
+    b = await readFile(referencePath);
+  } catch {
+    return false;
+  }
+  if (looksBinary(a) || looksBinary(b)) return false;
+  return normaliseEol(a).equals(normaliseEol(b));
+}
+
+/** Drop every `\r` that immediately precedes a `\n`. */
+function normaliseEol(buf: Buffer): Buffer {
+  if (!buf.includes(0x0d)) return buf;
+  const out = Buffer.alloc(buf.length);
+  let n = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x0d && buf[i + 1] === 0x0a) continue;
+    out[n++] = buf[i] as number;
+  }
+  return out.subarray(0, n);
 }
 
 /** Read, version-check, and schema-validate a lockfile at a known path. */
@@ -331,17 +396,37 @@ export async function hashTree(outputDir: string): Promise<LockFileEntry[]> {
   return entries;
 }
 
-async function walk(dir: string, root: string, out: LockFileEntry[]): Promise<void> {
+/**
+ * A5b: `hashTree` variant for CROSS-TREE COMPARISON ONLY — text files
+ * are `\r\n`→`\n` normalised before hashing so trees that differ only
+ * by checkout line endings hash identically. NEVER persist these
+ * digests: the lockfile's contract is "sha256 of the bytes as Hex
+ * rendered them", and this deliberately isn't that.
+ */
+export async function hashTreeForComparison(outputDir: string): Promise<LockFileEntry[]> {
+  const entries: LockFileEntry[] = [];
+  await walk(outputDir, outputDir, entries, (buf) => (looksBinary(buf) ? buf : normaliseEol(buf)));
+  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return entries;
+}
+
+async function walk(
+  dir: string,
+  root: string,
+  out: LockFileEntry[],
+  transform?: (buf: Buffer) => Buffer,
+): Promise<void> {
   for (const dirent of await readdir(dir, { withFileTypes: true })) {
     if (dirent.isDirectory()) {
       if (SKIP_DIRS.has(dirent.name)) continue;
-      await walk(join(dir, dirent.name), root, out);
+      await walk(join(dir, dirent.name), root, out, transform);
     } else if (dirent.isFile()) {
       const abs = join(dir, dirent.name);
+      const raw = await readFile(abs);
       out.push({
         path: relative(root, abs).split(sep).join('/'),
         sha256: createHash('sha256')
-          .update(await readFile(abs))
+          .update(transform ? transform(raw) : raw)
           .digest('hex'),
       });
     }

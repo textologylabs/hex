@@ -162,6 +162,7 @@ describe('buildAdoptReport', () => {
       modified: ['b.ts'],
       missing: [],
       added: ['extra.md'],
+      eolOnly: [],
     };
     const report = buildAdoptReport(lf, integrity, { dryRun: false });
     expect(report.clean).toEqual(['a.ts', 'c.ts']);
@@ -175,7 +176,13 @@ describe('buildAdoptReport', () => {
 
   it('reports a perfect fit as 100% with groups sorted', () => {
     const lf = fakeLockfile(['z.ts', 'a.ts']);
-    const integrity: LockfileIntegrity = { ok: true, modified: [], missing: [], added: [] };
+    const integrity: LockfileIntegrity = {
+      ok: true,
+      modified: [],
+      missing: [],
+      added: [],
+      eolOnly: [],
+    };
     const report = buildAdoptReport(lf, integrity, { dryRun: true });
     expect(report.fitPercent).toBe(100);
     expect(report.clean).toEqual(['a.ts', 'z.ts']);
@@ -191,6 +198,7 @@ describe('formatAdoptText', () => {
       modified: ['b.ts'],
       missing: [],
       added: ['mine.md'],
+      eolOnly: [],
     };
     const text = formatAdoptText(buildAdoptReport(lf, integrity, { dryRun: false }));
     expect(text).toContain('Adopted');
@@ -207,7 +215,13 @@ describe('formatAdoptText', () => {
   it('truncates long groups and switches header for --dry-run', () => {
     const paths = Array.from({ length: 15 }, (_, i) => `f${String(i).padStart(2, '0')}.ts`);
     const lf = fakeLockfile(paths);
-    const integrity: LockfileIntegrity = { ok: false, modified: paths, missing: [], added: [] };
+    const integrity: LockfileIntegrity = {
+      ok: false,
+      modified: paths,
+      missing: [],
+      added: [],
+      eolOnly: [],
+    };
     const text = formatAdoptText(buildAdoptReport(lf, integrity, { dryRun: true }));
     expect(text).toContain('Fit preview');
     expect(text).toContain('nothing written');
@@ -588,6 +602,7 @@ describe('adopt --provenance (A7)', () => {
       modified: ['a.ts', 'b.ts'],
       missing: [],
       added: [],
+      eolOnly: [],
     };
     const provenance = {
       ref: 'root commit',
@@ -610,6 +625,7 @@ describe('adopt --provenance (A7)', () => {
       modified: ['a.ts', 'b.ts', 'c.ts'],
       missing: [],
       added: [],
+      eolOnly: [],
     };
     const text = formatAdoptText(
       buildAdoptReport(

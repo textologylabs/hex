@@ -102,7 +102,13 @@ function loaded(lockfile: Lockfile): LoadedLockfile {
   return { path: '/work/.hex/lockfile.yaml', rootDir: '/work', lockfile };
 }
 
-const cleanIntegrity: LockfileIntegrity = { ok: true, modified: [], missing: [], added: [] };
+const cleanIntegrity: LockfileIntegrity = {
+  ok: true,
+  modified: [],
+  missing: [],
+  added: [],
+  eolOnly: [],
+};
 
 describe('formatLockfileSection', () => {
   it('returns null when no lockfile was found', () => {
@@ -153,6 +159,7 @@ describe('formatLockfileSection', () => {
       modified: ['src/index.ts', 'package.json'],
       missing: ['README.md'],
       added: ['src/extra.ts'],
+      eolOnly: [],
     };
     const out = formatLockfileSection(loaded(fakeRecipeLockfile()), integrity);
     expect(out).not.toBeNull();
@@ -166,6 +173,7 @@ describe('formatLockfileSection', () => {
       modified: ['src/index.ts'],
       missing: [],
       added: [],
+      eolOnly: [],
     };
     const out = formatLockfileSection(loaded(fakeRecipeLockfile()), integrity);
     expect(out).toContain('1 file diverged');
