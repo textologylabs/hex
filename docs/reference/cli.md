@@ -186,6 +186,9 @@ hex deploy [--dry-run]
 
 Inspect terminal capabilities, runtime info, the project lockfile + its
 integrity, and any outstanding setup tasks. A read-only health check.
+Integrity is line-ending tolerant when the app carries a `.hex/pristine/`
+baseline: a CRLF checkout reads `integrity clean (N files differ only in
+line endings)` instead of a permanent divergence warning.
 
 ```
 hex doctor [--json]
@@ -254,6 +257,13 @@ thing. `--dry-run` is a pure preview.
 quality gauge for a freshly authored template: low fit means the template's
 parameterisation doesn't reproduce the project it supposedly describes.
 
+**Line endings** — a Windows checkout with `core.autocrlf=true` holds CRLF
+text while the template renders LF. Fit classification is line-ending
+tolerant: files whose *only* divergence is line endings count **clean** and
+are surfaced separately (`eolOnly` in `--json`, an "N files differ only in
+line endings — counted clean" note in text). Binaries are never normalised,
+and a genuine edit on a CRLF file still classifies edited.
+
 **`--provenance` (provenance-aware fit)** — plain `edited` conflates two
 stories: *the team changed this* and *the template moved on after the copy*.
 The project's own git history can tell them apart: `--provenance`
@@ -267,10 +277,9 @@ report-only: it never changes what adopt writes, `fitPercent` is unmoved,
 `edited` remains the full union in JSON, and any git failure (no repo, bad
 ref) prints a warning and continues without the split — never a hard error.
 Teams squash, so treat the ref as a hint: pass one explicitly
-(`--provenance <tag-or-sha>`) when you know the true copy point. One
-line-ending caveat: the ref tree is materialised with the blobs as stored
-(LF), so a working tree checked out with CRLF conversion will over-report
-"edited by you" — normalise line endings first for an honest split.
+(`--provenance <tag-or-sha>`) when you know the true copy point. The
+split is line-ending-insensitive: all three trees are compared in
+normalised form, so a CRLF checkout cannot fake "touched".
 
 **Exit codes** — `0` on success *even at low fit* (fit is information, not a
 gate — inspect and decide) and on a declined re-adopt; `1` on hard errors

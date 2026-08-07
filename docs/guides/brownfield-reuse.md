@@ -155,7 +155,9 @@ The **fit report** classifies every file:
 | missing | The template renders it; this project deleted it. |
 | untracked | This project's own files; the template doesn't know them. |
 
-`fit % = clean / recorded`. Read it as a **hexification quality gauge**: a
+`fit % = clean / recorded`. Windows checkouts read their true fit: files
+that differ only in line endings count clean (surfaced separately, never
+silently). Read the number as a **hexification quality gauge**: a
 low fit with a long edited-list usually means a parameterisation is missing
 or wrong — the edited-list tells you exactly where. Fix the template,
 re-run the dry-run (it wrote nothing, so there's nothing to undo), repeat
@@ -250,6 +252,11 @@ edited-lists are each team's reconciliation worklist.
   want richer prompts; it's a normal manifest, yours to refine.
 - Hexify proposes values of 3+ characters; shorter values over-match and
   must be handled by hand if you truly need them.
+- **Line endings**: fit classification and the provenance split are
+  CRLF-tolerant (a Windows checkout reads its true fit), but `hex upgrade`'s
+  3-way merge is not yet — on an all-CRLF tree expect noisy conflicts.
+  Normalise line endings (`.gitattributes` with `* text=auto eol=lf`)
+  before the first upgrade.
 
 ## See also
 

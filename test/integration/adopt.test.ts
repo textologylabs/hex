@@ -315,3 +315,48 @@ describe('adopt --provenance: the A7 three-buckets arc (real git)', () => {
     expect(report.fitPercent).toBe(100);
   });
 });
+
+describe('adopt on a simulated Windows checkout (A5b CRLF fit)', () => {
+  it('an all-CRLF copy of an LF template reads fit 100%, and doctor stays clean after adoption', async () => {
+    const template = await writeTemplate(join(work, 'template'), '1.0.0', {
+      'README.md': 'hello\nworld\n',
+      'src/lib.ts': 'export const a = 1;\nexport const b = 2;\n',
+      'conf/service.yaml': 'service: acme\nowner: team\n',
+    });
+    const app = await renderThenStripHex(template, join(work, 'app'));
+
+    // Simulate core.autocrlf=true: every text file flips to CRLF.
+    for (const rel of ['README.md', 'src/lib.ts', 'conf/service.yaml']) {
+      const abs = join(app, rel);
+      await writeFile(abs, (await read(abs)).replaceAll('\n', '\r\n'), 'utf8');
+    }
+    // Plus one genuine edit on top of the CRLF conversion.
+    await writeFile(
+      join(app, 'src/lib.ts'),
+      'export const a = 99;\r\nexport const b = 2;\r\n',
+      'utf8',
+    );
+
+    // Dry-run: fit reflects reality, not line endings.
+    const preview = makeEffects(template);
+    await runAdoptCommand(app, 'adopt-fixture', preview.effects, { dryRun: true, json: true });
+    const fit = JSON.parse(preview.stdout.join('')) as AdoptFitReport;
+    expect(fit.fitPercent).toBe(67); // 2/3 clean — only the real edit counts
+    expect(fit.edited).toEqual(['src/lib.ts']);
+    expect(fit.eolOnly).toEqual(['README.md', 'conf/service.yaml']);
+
+    // Adopt for real; the doctor path (pristine baseline as reference)
+    // must agree — CRLF files stay eolOnly, integrity stays ok.
+    const adopt = makeEffects(template);
+    await runAdoptCommand(app, 'adopt-fixture', adopt.effects, {});
+    expect(adopt.exitCodes).toEqual([]);
+    const loaded = await readLockfileUpward(app);
+    expect(loaded).not.toBeNull();
+    if (!loaded) return;
+    const integrity = await checkLockfileIntegrity(loaded.rootDir, loaded.lockfile, {
+      referenceTree: join(loaded.rootDir, '.hex', 'pristine'),
+    });
+    expect(integrity.modified).toEqual(['src/lib.ts']);
+    expect(integrity.eolOnly).toEqual(['README.md', 'conf/service.yaml']);
+  });
+});
