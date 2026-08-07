@@ -100,7 +100,7 @@ describe('checkLockfileIntegrity', () => {
       'src/index.ts': 'export {};\n',
     });
     const result = await checkLockfileIntegrity(rootDir, lockfile);
-    expect(result).toEqual({ ok: true, modified: [], missing: [], added: [] });
+    expect(result).toEqual({ ok: true, modified: [], missing: [], added: [], eolOnly: [] });
   });
 
   it('lists a file edited since generation as modified', async () => {
@@ -135,5 +135,68 @@ describe('checkLockfileIntegrity', () => {
     const result = await checkLockfileIntegrity(rootDir, lockfile);
     expect(result.added).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('checkLockfileIntegrity — CRLF tolerance (A5b)', () => {
+  /** A reference tree holding the template-side bytes (LF, as rendered). */
+  async function makeReference(files: Record<string, string | Buffer>): Promise<string> {
+    const ref = await mkdtemp(join(work, 'ref-'));
+    for (const [rel, body] of Object.entries(files)) {
+      await mkdir(join(ref, rel, '..'), { recursive: true });
+      await writeFile(join(ref, rel), body);
+    }
+    return ref;
+  }
+
+  const LF = 'line one\nline two\n';
+  const CRLF = 'line one\r\nline two\r\n';
+
+  it('demotes a CRLF-only checkout to eolOnly when a reference tree is given', async () => {
+    const { rootDir, lockfile } = await makeApp({ 'a.txt': LF, 'b.txt': 'same\n' });
+    await writeFile(join(rootDir, 'a.txt'), CRLF, 'utf8');
+    const reference = await makeReference({ 'a.txt': LF, 'b.txt': 'same\n' });
+
+    const result = await checkLockfileIntegrity(rootDir, lockfile, { referenceTree: reference });
+    expect(result).toEqual({ ok: true, modified: [], missing: [], added: [], eolOnly: ['a.txt'] });
+  });
+
+  it('keeps today’s behaviour without a reference tree', async () => {
+    const { rootDir, lockfile } = await makeApp({ 'a.txt': LF });
+    await writeFile(join(rootDir, 'a.txt'), CRLF, 'utf8');
+    const result = await checkLockfileIntegrity(rootDir, lockfile);
+    expect(result.modified).toEqual(['a.txt']);
+    expect(result.eolOnly).toEqual([]);
+    expect(result.ok).toBe(false);
+  });
+
+  it('a genuine edit stays modified even when also CRLF-converted', async () => {
+    const { rootDir, lockfile } = await makeApp({ 'a.txt': LF });
+    await writeFile(join(rootDir, 'a.txt'), 'line one\r\nEDITED\r\n', 'utf8');
+    const reference = await makeReference({ 'a.txt': LF });
+    const result = await checkLockfileIntegrity(rootDir, lockfile, { referenceTree: reference });
+    expect(result.modified).toEqual(['a.txt']);
+    expect(result.eolOnly).toEqual([]);
+  });
+
+  it('never normalises binaries — a 0D0A byte pair is data, not a newline', async () => {
+    const rootDir = await mkdtemp(join(work, 'bin-app-'));
+    await writeFile(join(rootDir, 'blob.bin'), Buffer.from([0x00, 0x0d, 0x0a, 0x42]));
+    const lockfile = await buildLockfile({ bundle: fakeBundle(), answers: {}, outputDir: rootDir });
+    await writeLockfile(rootDir, lockfile);
+    // Project's copy differs exactly by the \r — normalised text WOULD match.
+    await writeFile(join(rootDir, 'blob.bin'), Buffer.from([0x00, 0x0a, 0x42]));
+    const reference = await makeReference({ 'blob.bin': Buffer.from([0x00, 0x0d, 0x0a, 0x42]) });
+    const result = await checkLockfileIntegrity(rootDir, lockfile, { referenceTree: reference });
+    expect(result.modified).toEqual(['blob.bin']);
+    expect(result.eolOnly).toEqual([]);
+  });
+
+  it('a file absent from the reference tree stays modified', async () => {
+    const { rootDir, lockfile } = await makeApp({ 'a.txt': LF });
+    await writeFile(join(rootDir, 'a.txt'), CRLF, 'utf8');
+    const reference = await makeReference({});
+    const result = await checkLockfileIntegrity(rootDir, lockfile, { referenceTree: reference });
+    expect(result.modified).toEqual(['a.txt']);
   });
 });

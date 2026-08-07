@@ -102,7 +102,13 @@ function loaded(lockfile: Lockfile): LoadedLockfile {
   return { path: '/work/.hex/lockfile.yaml', rootDir: '/work', lockfile };
 }
 
-const cleanIntegrity: LockfileIntegrity = { ok: true, modified: [], missing: [], added: [] };
+const cleanIntegrity: LockfileIntegrity = {
+  ok: true,
+  modified: [],
+  missing: [],
+  added: [],
+  eolOnly: [],
+};
 
 describe('formatLockfileSection', () => {
   it('returns null when no lockfile was found', () => {
@@ -153,11 +159,25 @@ describe('formatLockfileSection', () => {
       modified: ['src/index.ts', 'package.json'],
       missing: ['README.md'],
       added: ['src/extra.ts'],
+      eolOnly: [],
     };
     const out = formatLockfileSection(loaded(fakeRecipeLockfile()), integrity);
     expect(out).not.toBeNull();
     expect(out).toContain('4 files diverged');
     expect(out).toContain('2 modified, 1 missing, 1 added');
+  });
+
+  it('reports clean with a line-endings note when only eolOnly diverges (A5b)', () => {
+    const integrity: LockfileIntegrity = {
+      ok: true,
+      modified: [],
+      missing: [],
+      added: [],
+      eolOnly: ['src/index.ts', 'package.json'],
+    };
+    const out = formatLockfileSection(loaded(fakeRecipeLockfile()), integrity);
+    expect(out).toContain('integrity clean');
+    expect(out).toContain('2 files differ only in line endings');
   });
 
   it('uses the singular for a lone divergence', () => {
@@ -166,6 +186,7 @@ describe('formatLockfileSection', () => {
       modified: ['src/index.ts'],
       missing: [],
       added: [],
+      eolOnly: [],
     };
     const out = formatLockfileSection(loaded(fakeRecipeLockfile()), integrity);
     expect(out).toContain('1 file diverged');

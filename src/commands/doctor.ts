@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { Command } from 'commander';
 import { brand } from '../brand/colors.js';
 import { sym } from '../brand/glyphs.js';
@@ -14,6 +15,7 @@ import {
   checkLockfileIntegrity,
   readLockfileUpward,
 } from '../core/lockfile/index.js';
+import { BASELINE_REL_PATH, hasBaseline } from '../core/upgrade/baseline.js';
 
 /**
  * Runtime + project-state info `hex doctor` reports. The pure
@@ -248,7 +250,17 @@ function appendChildRowsFromReport(
 /** The single integrity-status line: a clean ✓ or an "N files diverged" ⚠. */
 function integrityLine(integrity: LockfileIntegrity | null): string {
   if (!integrity) return `  ${brand.dim('integrity: not checked')}`;
-  if (integrity.ok) return `  ${brand.done(sym.ok())}  integrity clean`;
+  if (integrity.ok) {
+    const eol =
+      integrity.eolOnly.length > 0
+        ? brand.dim(
+            ` (${integrity.eolOnly.length} file${
+              integrity.eolOnly.length === 1 ? '' : 's'
+            } differ only in line endings)`,
+          )
+        : '';
+    return `  ${brand.done(sym.ok())}  integrity clean${eol}`;
+  }
 
   const total = integrity.modified.length + integrity.missing.length + integrity.added.length;
   const breakdown = `${integrity.modified.length} modified, ${integrity.missing.length} missing, ${integrity.added.length} added`;
@@ -314,6 +326,13 @@ async function loadLockfileForDoctor(cwd: string): Promise<{
     };
   }
   if (!loaded) return { lockfile: null, integrity: null };
-  const integrity = await checkLockfileIntegrity(loaded.rootDir, loaded.lockfile).catch(() => null);
+  // A5b: with a stored pristine baseline as reference, CRLF-only
+  // checkouts classify eolOnly rather than modified.
+  const reference = hasBaseline(loaded.rootDir)
+    ? { referenceTree: join(loaded.rootDir, BASELINE_REL_PATH) }
+    : {};
+  const integrity = await checkLockfileIntegrity(loaded.rootDir, loaded.lockfile, reference).catch(
+    () => null,
+  );
   return { lockfile: loaded, integrity };
 }

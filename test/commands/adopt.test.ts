@@ -162,6 +162,7 @@ describe('buildAdoptReport', () => {
       modified: ['b.ts'],
       missing: [],
       added: ['extra.md'],
+      eolOnly: [],
     };
     const report = buildAdoptReport(lf, integrity, { dryRun: false });
     expect(report.clean).toEqual(['a.ts', 'c.ts']);
@@ -175,7 +176,13 @@ describe('buildAdoptReport', () => {
 
   it('reports a perfect fit as 100% with groups sorted', () => {
     const lf = fakeLockfile(['z.ts', 'a.ts']);
-    const integrity: LockfileIntegrity = { ok: true, modified: [], missing: [], added: [] };
+    const integrity: LockfileIntegrity = {
+      ok: true,
+      modified: [],
+      missing: [],
+      added: [],
+      eolOnly: [],
+    };
     const report = buildAdoptReport(lf, integrity, { dryRun: true });
     expect(report.fitPercent).toBe(100);
     expect(report.clean).toEqual(['a.ts', 'z.ts']);
@@ -191,6 +198,7 @@ describe('formatAdoptText', () => {
       modified: ['b.ts'],
       missing: [],
       added: ['mine.md'],
+      eolOnly: [],
     };
     const text = formatAdoptText(buildAdoptReport(lf, integrity, { dryRun: false }));
     expect(text).toContain('Adopted');
@@ -207,7 +215,13 @@ describe('formatAdoptText', () => {
   it('truncates long groups and switches header for --dry-run', () => {
     const paths = Array.from({ length: 15 }, (_, i) => `f${String(i).padStart(2, '0')}.ts`);
     const lf = fakeLockfile(paths);
-    const integrity: LockfileIntegrity = { ok: false, modified: paths, missing: [], added: [] };
+    const integrity: LockfileIntegrity = {
+      ok: false,
+      modified: paths,
+      missing: [],
+      added: [],
+      eolOnly: [],
+    };
     const text = formatAdoptText(buildAdoptReport(lf, integrity, { dryRun: true }));
     expect(text).toContain('Fit preview');
     expect(text).toContain('nothing written');
@@ -588,6 +602,7 @@ describe('adopt --provenance (A7)', () => {
       modified: ['a.ts', 'b.ts'],
       missing: [],
       added: [],
+      eolOnly: [],
     };
     const provenance = {
       ref: 'root commit',
@@ -610,6 +625,7 @@ describe('adopt --provenance (A7)', () => {
       modified: ['a.ts', 'b.ts', 'c.ts'],
       missing: [],
       added: [],
+      eolOnly: [],
     };
     const text = formatAdoptText(
       buildAdoptReport(
@@ -746,5 +762,76 @@ describe('adopt answer bootstrap (A3)', () => {
     const lf = lockfileSchema.parse(parseYaml(lockfileText));
     // The YAML's value, not package.json's "my-app".
     expect(lf.answers).toEqual({ project_name: 'other-app' });
+  });
+});
+
+describe('adopt CRLF tolerance (A5b)', () => {
+  /** The my-app render, but as a Windows checkout would hold it. */
+  async function buildCrlfProject(name: string): Promise<string> {
+    const root = join(work, name);
+    await writeFileEnsure(join(root, 'package.json'), '{"name": "my-app"}\r\n');
+    await writeFileEnsure(join(root, 'src', 'index.ts'), 'export const x = 1;\r\n');
+    return root;
+  }
+
+  it('a CRLF checkout of an LF template reads fit 100% with eolOnly surfaced', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildCrlfProject('crlf-project');
+    const cap = captureEffects(template);
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, { dryRun: true, json: true });
+
+    expect(cap.exitCodes).toEqual([]);
+    const report = JSON.parse(cap.stdout.join('')) as AdoptFitReport;
+    expect(report.fitPercent).toBe(100);
+    expect(report.clean).toEqual(['package.json', 'src/index.ts']);
+    expect(report.edited).toEqual([]);
+    expect(report.eolOnly).toEqual(['package.json', 'src/index.ts']);
+  });
+
+  it('renders the counted-clean line in text mode', async () => {
+    const template = await buildTemplateFixture();
+    const project = await buildCrlfProject('crlf-text');
+    const cap = captureEffects(template);
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, { dryRun: true });
+
+    expect(cap.stdout.join('')).toContain('2 files differ only in line endings — counted clean');
+    expect(cap.stdout.join('')).toContain('fit 100%');
+  });
+
+  it('a genuine edit on a CRLF tree still classifies edited, and provenance splits it right', async () => {
+    const template = await buildTemplateFixture();
+    const project = join(work, 'crlf-prov');
+    // Edited AND CRLF: content change on top of line endings.
+    await writeFileEnsure(join(project, 'package.json'), '{"name": "my-app", "extra": true}\r\n');
+    // CRLF-only: must be eolOnly, never reaching the provenance split.
+    await writeFileEnsure(join(project, 'src', 'index.ts'), 'export const x = 1;\r\n');
+
+    const cap = captureEffects(template);
+    cap.effects.materialiseProvenance = async (_root, ref, destDir) => {
+      // Ref tree = the original copy (LF, unedited).
+      await writeFileEnsure(join(destDir, 'tree', 'package.json'), '{"name": "my-app"}\n');
+      await writeFileEnsure(join(destDir, 'tree', 'src', 'index.ts'), 'export const x = 1;\n');
+      return { ref: ref ?? 'root commit', sha: 'cd'.repeat(20) };
+    };
+
+    await runAdoptCommand(project, 'adoptable', cap.effects, {
+      dryRun: true,
+      json: true,
+      provenance: true,
+    });
+
+    expect(cap.exitCodes).toEqual([]);
+    const report = JSON.parse(cap.stdout.join('')) as AdoptFitReport;
+    expect(report.edited).toEqual(['package.json']);
+    expect(report.eolOnly).toEqual(['src/index.ts']);
+    // Team edited it (normalised ref ≠ normalised HEAD); template did not
+    // move (normalised ref == normalised shadow render) → edited by you.
+    expect(report.provenance).toMatchObject({
+      editedByYou: ['package.json'],
+      stale: [],
+      collided: [],
+    });
   });
 });

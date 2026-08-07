@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **CRLF checkouts no longer read as fully edited** ([869eddqrj](https://app.clickup.com/t/869eddqrj), the A5b fit slice). On Windows with `core.autocrlf=true` (the Git-for-Windows default), every text file is CRLF while template renders are LF — byte-hash comparison classified the whole tree "edited": adopt read fit 0%, doctor showed a permanent divergence warning, and the provenance split called everything "touched". Fit classification is now line-ending tolerant *without touching stored artifacts*: lockfile hashes remain raw bytes (the "sha256 as rendered" contract and every existing lockfile survive), and `checkLockfileIntegrity` gains an optional reference tree (adopt: the shadow render; doctor/upgrade: `.hex/pristine/`) — raw mismatches are re-read on both sides, binaries skipped, and files equal after `\r\n`→`\n` land in a new visible **`eolOnly`** bucket: counted clean, surfaced honestly ("N files differ only in line endings — counted clean"; `integrity clean (…)` in doctor). The A7 provenance split compares all three trees in normalised form. Behaviour note: upgrade's `delete_if_unmodified` migrations now correctly fire on Windows for untouched-but-CRLF files (they previously never did). Known remaining gap, documented in the handbook: `hex upgrade`'s 3-way merge is not yet CRLF-tolerant — normalise line endings before the first upgrade.
+
 ## [1.2.0] — 2026-08-06
 
 The AI-handoff and honest-fit release, completing the brownfield kit for

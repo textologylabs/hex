@@ -413,6 +413,12 @@ Also check re-adopt (1.1): run `adopt` again on the adopted project — it must
 ask "Already adopted (…) — re-adopt…?" with default No; declining prints
 "re-adopt declined" and changes nothing; confirming replaces the adoption.
 
+Also check CRLF fit (A5b): convert the adopted project's text files to CRLF
+(`unix2dos` or an editor), then `adopt --dry-run` must read the true fit
+with "N files differ only in line endings — counted clean", and `hex
+doctor` must stay `integrity clean (…)` rather than reporting the whole
+tree diverged.
+
 Also check the 1.2 pair:
 - **Answer bootstrap (A3)**: give the scratch project a `package.json` whose
   `name` matches the template's `project_name` answer — the interactive
